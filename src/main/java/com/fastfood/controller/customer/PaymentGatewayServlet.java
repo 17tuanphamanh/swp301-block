@@ -1,0 +1,43 @@
+package com.fastfood.controller.customer;
+
+import com.fastfood.common.util.WebUtil;
+import com.fastfood.controller.BaseServlet;
+import com.fastfood.service.PaymentService;
+
+import javax.servlet.ServletException;
+import javax.servlet.annotation.WebServlet;
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
+import java.io.IOException;
+
+/**
+ * Trang cổng thanh toán giả lập.
+ * <p>
+ * Đóng vai trang thanh toán của ngân hàng, cho phép chọn thành công hoặc thất bại.
+ * Nhờ vậy có thể diễn lại đủ các tình huống thật khi trình bày: thanh toán hỏng rồi
+ * thử lại, bỏ dở để đơn hết hạn, và cổng gửi kết quả về hai lần.
+ * <p>
+ * Chữ ký cho cả hai kết quả được tính ở phía máy chủ, đúng như cổng thật ký dữ liệu
+ * trước khi gửi về.
+ */
+@WebServlet("/payment/gateway")
+public class PaymentGatewayServlet extends BaseServlet {
+
+    private final PaymentService paymentService = new PaymentService();
+
+    @Override
+    protected void doGet(HttpServletRequest req, HttpServletResponse resp)
+            throws ServletException, IOException {
+        requireUser(req);
+        int paymentId = WebUtil.getInt(req, "paymentId", 0);
+        String txnId = WebUtil.getString(req, "txnId");
+
+        req.setAttribute("paymentId", paymentId);
+        req.setAttribute("txnId", txnId);
+        req.setAttribute("orderId", WebUtil.getInt(req, "orderId", 0));
+        req.setAttribute("amount", WebUtil.getString(req, "amount"));
+        req.setAttribute("successSig", WebUtil.getString(req, "sig"));
+        req.setAttribute("failureSig", paymentService.signFailure(paymentId, txnId));
+        forward(req, resp, "customer/payment-gateway.jsp");
+    }
+}

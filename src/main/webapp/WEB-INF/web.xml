@@ -1,0 +1,66 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<web-app xmlns="http://xmlns.jcp.org/xml/ns/javaee"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://xmlns.jcp.org/xml/ns/javaee
+                             http://xmlns.jcp.org/xml/ns/javaee/web-app_4_0.xsd"
+         version="4.0">
+
+    <display-name>Fast Food Pre-order Pickup &amp; POS - V6</display-name>
+
+    <!--
+      Servlet/Filter được khai báo bằng annotation (@WebServlet, @WebFilter) trong package
+      com.fastfood.controller và com.fastfood.filter. web.xml chỉ giữ cấu hình toàn cục.
+      Bảng URL mapping đầy đủ: xem docs/STRUCTURE.md mục 5.
+    -->
+
+    <!-- ===== Listener: khởi tạo DB pool + Scheduler (UC-07, BR-13) ===== -->
+    <listener>
+        <listener-class>com.fastfood.listener.AppContextListener</listener-class>
+    </listener>
+    <listener>
+        <listener-class>com.fastfood.listener.SessionListener</listener-class>
+    </listener>
+
+    <!-- ===== Session ===== -->
+    <session-config>
+        <session-timeout>60</session-timeout>
+        <cookie-config>
+            <http-only>true</http-only>
+        </cookie-config>
+        <tracking-mode>COOKIE</tracking-mode>
+    </session-config>
+
+    <!-- ===== Welcome page ===== -->
+    <welcome-file-list>
+        <welcome-file>index.jsp</welcome-file>
+    </welcome-file-list>
+
+    <!-- ===== Error pages (NFR-01: không lộ stacktrace) ===== -->
+    <error-page>
+        <error-code>403</error-code>
+        <location>/WEB-INF/views/error/403.jsp</location>
+    </error-page>
+    <error-page>
+        <error-code>404</error-code>
+        <location>/WEB-INF/views/error/404.jsp</location>
+    </error-page>
+    <error-page>
+        <error-code>500</error-code>
+        <location>/WEB-INF/views/error/500.jsp</location>
+    </error-page>
+    <error-page>
+        <exception-type>java.lang.Throwable</exception-type>
+        <location>/WEB-INF/views/error/500.jsp</location>
+    </error-page>
+
+    <!-- ===== Encoding cho tiếng Việt ===== -->
+    <jsp-config>
+        <jsp-property-group>
+            <url-pattern>*.jsp</url-pattern>
+            <page-encoding>UTF-8</page-encoding>
+            <!-- .jspf để không tự include chính nó qua pattern *.jsp -->
+            <include-prelude>/WEB-INF/views/layout/taglib.jspf</include-prelude>
+        </jsp-property-group>
+    </jsp-config>
+
+</web-app>
