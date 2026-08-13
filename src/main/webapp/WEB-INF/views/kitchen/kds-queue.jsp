@@ -55,6 +55,11 @@
             <span>Đơn #${v.item.orderId}</span>
             <span>${v.pickupLabel}</span>
           </div>
+          <%-- Đơn bị huỷ sau khi món đã nấu xong: món vẫn phải đưa ra khỏi bếp, nhưng đầu bếp
+               cần biết ngay là nó sẽ bị bỏ đi chứ không tới tay khách. --%>
+          <c:if test="${v.item.orderClosed}">
+            <div class="mt"><span class="tag tag-red">${ff:orderStatus(v.item.orderStatus)} — mang bỏ, không giao khách</span></div>
+          </c:if>
           <div class="small muted mt">Xong lúc ${ff:time(v.item.readyAt)}</div>
           <div class="actions">
             <form method="post" action="${ctx}/kitchen/queue" class="grow">

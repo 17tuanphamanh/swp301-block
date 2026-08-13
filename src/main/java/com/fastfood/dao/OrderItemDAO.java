@@ -34,6 +34,16 @@ public class OrderItemDAO {
             "LEFT JOIN dbo.Users hu ON hu.user_id = oi.handed_over_by " +
             "LEFT JOIN dbo.Users ru ON ru.user_id = oi.received_by ";
 
+    /**
+     * Thông tin của đơn mà màn hình bếp và màn hình quầy cần biết. Chỉ dùng được ở truy vấn
+     * có tham gia bảng Orders, và phải đi cùng {@code map(rs, true)}.
+     * <p>
+     * Có {@code order_status} vì món đã nấu xong vẫn ở lại hàng chờ của quầy kể cả khi đơn bị
+     * huỷ sau đó — món có thật, giấu đi thì không ai xử lý. Quầy cần nhìn thấy nó kèm nhãn
+     * "đơn đã huỷ" để mang đi bỏ chứ không đưa cho khách.
+     */
+    private static final String ORDER_COLS = ", o.order_source, o.pickup_time, o.order_status ";
+
     /** Số sự cố còn mở của dòng món — hiện thành nhãn đỏ trên thẻ ở màn hình bếp. */
     private static final String OPEN_ISSUE_COL =
             ", (SELECT COUNT(*) FROM dbo.KitchenIssue ki " +
@@ -69,7 +79,7 @@ public class OrderItemDAO {
     }
 
     public OrderItem findById(Connection con, int orderItemId) throws SQLException {
-        String sql = "SELECT " + COLS + NAME_COLS + ", o.order_source, o.pickup_time " + OPEN_ISSUE_COL +
+        String sql = "SELECT " + COLS + NAME_COLS + ORDER_COLS + OPEN_ISSUE_COL +
                      "FROM dbo.OrderItem oi " +
                      "JOIN dbo.Orders o ON o.order_id = oi.order_id " + NAME_JOINS +
                      "WHERE oi.order_item_id = ?";
@@ -87,7 +97,7 @@ public class OrderItemDAO {
      * xếp theo thứ tự vào trước làm trước.
      */
     public List<OrderItem> findWaitingQueue(Connection con) throws SQLException {
-        String sql = "SELECT " + COLS + NAME_COLS + ", o.order_source, o.pickup_time " + OPEN_ISSUE_COL +
+        String sql = "SELECT " + COLS + NAME_COLS + ORDER_COLS + OPEN_ISSUE_COL +
                      "FROM dbo.OrderItem oi JOIN dbo.Orders o ON o.order_id = oi.order_id " + NAME_JOINS +
                      "WHERE oi.item_status = 'WAITING' AND o.released_to_kds_at IS NOT NULL " +
                      "  AND o.order_status IN ('CONFIRMED','PREPARING') " +
@@ -106,7 +116,7 @@ public class OrderItemDAO {
      * vẫn nằm trong danh sách việc và đầu bếp tiếp tục nấu một đơn không còn tồn tại.
      */
     public List<OrderItem> findMyTasks(Connection con, int userId) throws SQLException {
-        String sql = "SELECT " + COLS + NAME_COLS + ", o.order_source, o.pickup_time " + OPEN_ISSUE_COL +
+        String sql = "SELECT " + COLS + NAME_COLS + ORDER_COLS + OPEN_ISSUE_COL +
                      "FROM dbo.OrderItem oi JOIN dbo.Orders o ON o.order_id = oi.order_id " + NAME_JOINS +
                      "WHERE oi.assigned_to_user_id = ? AND oi.item_status = 'PREPARING' " +
                      "  AND o.order_status IN ('CONFIRMED','PREPARING') " +
@@ -125,7 +135,7 @@ public class OrderItemDAO {
      * ở đây chỉ khiến món nằm lại mà không ai còn nhìn thấy.
      */
     public List<OrderItem> findAwaitingHandover(Connection con, int userId) throws SQLException {
-        String sql = "SELECT " + COLS + NAME_COLS + ", o.order_source, o.pickup_time " + OPEN_ISSUE_COL +
+        String sql = "SELECT " + COLS + NAME_COLS + ORDER_COLS + OPEN_ISSUE_COL +
                      "FROM dbo.OrderItem oi JOIN dbo.Orders o ON o.order_id = oi.order_id " + NAME_JOINS +
                      "WHERE oi.assigned_to_user_id = ? AND oi.item_status = 'READY' " +
                      "  AND oi.handed_over_at IS NULL " +
@@ -142,7 +152,7 @@ public class OrderItemDAO {
      * Sắp theo lúc bàn giao chứ không theo giờ hẹn: món ra trước thì nguội trước.
      */
     public List<OrderItem> findAwaitingCounter(Connection con) throws SQLException {
-        String sql = "SELECT " + COLS + NAME_COLS + ", o.order_source, o.pickup_time " + OPEN_ISSUE_COL +
+        String sql = "SELECT " + COLS + NAME_COLS + ORDER_COLS + OPEN_ISSUE_COL +
                      "FROM dbo.OrderItem oi JOIN dbo.Orders o ON o.order_id = oi.order_id " + NAME_JOINS +
                      "WHERE oi.handed_over_at IS NOT NULL AND oi.received_at IS NULL " +
                      "ORDER BY oi.handed_over_at, oi.order_item_id";
@@ -154,7 +164,7 @@ public class OrderItemDAO {
     /** Một trang món đã hoàn thành, dùng cho màn hình lịch sử của bếp. */
     public List<OrderItem> findReadyPage(Connection con, int offset, int limit) throws SQLException {
         String sql = "SELECT " + COLS + NAME_COLS +
-                     ", o.order_source, o.pickup_time, 0 AS open_issue_count " +
+                     ORDER_COLS + ", 0 AS open_issue_count " +
                      "FROM dbo.OrderItem oi JOIN dbo.Orders o ON o.order_id = oi.order_id " + NAME_JOINS +
                      "WHERE oi.item_status = 'READY' " +
                      "ORDER BY oi.ready_at DESC, oi.order_item_id DESC " +
@@ -203,10 +213,20 @@ public class OrderItemDAO {
         }
     }
 
-    /** Đánh dấu món xong. Chỉ người đang làm mới đánh dấu được. */
+    /**
+     * Đánh dấu món xong. Chỉ người đang làm mới đánh dấu được.
+     * <p>
+     * Điều kiện về trạng thái đơn phải trùng khít với {@link #findMyTasks}, vì cùng một lý do
+     * như ở {@link #claim}: thu ngân huỷ được cả đơn đang nấu, và nếu điều kiện chỉ nằm ở truy
+     * vấn hiển thị thì món của đơn vừa bị huỷ vẫn đánh dấu xong được bằng cách gửi thẳng mã
+     * món — rồi đi tiếp sang quầy như một món bình thường của một đơn không còn tồn tại.
+     */
     public int markReady(Connection con, int orderItemId, int userId, LocalDateTime now) throws SQLException {
-        String sql = "UPDATE dbo.OrderItem SET item_status = 'READY', ready_at = ? " +
-                     "WHERE order_item_id = ? AND item_status = 'PREPARING' AND assigned_to_user_id = ?";
+        String sql = "UPDATE oi SET item_status = 'READY', ready_at = ? " +
+                     "FROM dbo.OrderItem oi JOIN dbo.Orders o ON o.order_id = oi.order_id " +
+                     "WHERE oi.order_item_id = ? AND oi.item_status = 'PREPARING' " +
+                     "  AND oi.assigned_to_user_id = ? " +
+                     "  AND o.order_status IN ('CONFIRMED','PREPARING')";
         try (PreparedStatement ps = con.prepareStatement(sql)) {
             JdbcSupport.setDateTime(ps, 1, now);
             ps.setInt(2, orderItemId);
@@ -353,6 +373,7 @@ public class OrderItemDAO {
         if (withOrderInfo) {
             i.setOrderSource(rs.getString("order_source"));
             i.setPickupTime(JdbcSupport.getDateTime(rs, "pickup_time"));
+            i.setOrderStatus(rs.getString("order_status"));
         }
         return i;
     }

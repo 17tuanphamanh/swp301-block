@@ -54,7 +54,7 @@ gửi email thật chỉ cần viết lớp mới, không đụng tới tầng S
 ```
 swp301-block/
 ├── pom.xml                          Maven, đóng gói WAR
-├── database/FastFoodPreorder.sql    Một tệp duy nhất: bảng, chỉ mục, view, dữ liệu mẫu
+├── database/FastFoodPreorder.sql    Tệp DB duy nhất: bảng, chỉ mục, view, dữ liệu mẫu, tự kiểm tra
 ├── docs/                            Tài liệu phân tích và thiết kế
 └── src/main/
     ├── java/com/fastfood/
@@ -302,7 +302,7 @@ phụ thuộc sang `jakarta.*` và đổi toàn bộ lệnh `import javax.servle
 ## 7. Bộ kiểm thử
 
 ```bash
-mvn test          # 132 bài
+mvn test          # 138 bài
 ```
 
 Chia hai nhóm bằng đuôi tên lớp:
@@ -310,7 +310,7 @@ Chia hai nhóm bằng đuôi tên lớp:
 | Nhóm | Đuôi | Chạy ở đâu | Số bài |
 |---|---|---|---|
 | Logic thuần | `*Test` | Mọi máy, không cần gì thêm | 39 |
-| Chạy thật xuống cơ sở dữ liệu | `*IT` | Cần SQL Server ở `localhost:1433` | 93 |
+| Chạy thật xuống cơ sở dữ liệu | `*IT` | Cần SQL Server ở `localhost:1433` | 99 |
 
 Nhóm `*IT` **tự bỏ qua** khi không có máy chủ, không báo đỏ: màu đỏ phải có nghĩa là mã nguồn
 sai, không phải là máy chạy test thiếu thứ gì đó.
@@ -331,6 +331,7 @@ hai bản lệch nhau lúc nào không ai biết, và bộ test sẽ xanh trên 
 | `KitchenFlowIT` | Bếp làm món, trạng thái đơn tự suy ra, bàn giao ra quầy, sự cố bếp |
 | `CancelRuleIT` | Mốc chặn huỷ đơn, hoàn tiền tự động và không lặp |
 | `OrderDashboardIT` | Bốn tab phủ kín mọi đơn chưa kết thúc |
+| `CounterQueueIT` | Hàng chờ của quầy giao nhận — kể cả món của đơn đã huỷ |
 | `AdminAccountIT` | Mật khẩu đặt hộ, chống tự hạ quyền |
 | `OrderStateTest` · `BusinessMathTest` · `PickupCodeGeneratorTest` | Giá trị suy ra và các phép tính nhỏ |
 

@@ -5,8 +5,11 @@ bản mô phỏng. Không cần cài Tomcat: máy chủ được nạp từ thư
 
 | Tệp | Kiểm tra gì | Số phép thử |
 |---|---|---|
-| `http-tests.sh` | HTML máy chủ gửi ra: bảng mã, phân quyền, mã trạng thái, dấu hiệu khả năng tiếp cận | 74 |
-| `ui-tests.js` | Những thứ chỉ có sau khi JavaScript chạy: vẽ lại thẻ bếp, thu gọn menu, ảnh hỏng, hộp xác nhận, chống bấm trùng | 41 |
+| `http-tests.sh` | HTML máy chủ gửi ra: bảng mã, phân quyền, mã trạng thái, dấu hiệu khả năng tiếp cận | 95 |
+| `ui-tests.js` | Những thứ chỉ có sau khi JavaScript chạy: vẽ lại thẻ bếp, thu gọn menu, ảnh hỏng, hộp xác nhận, chống bấm trùng | 46 |
+
+Ngoài ra `mvn test` chạy 138 bài ở tầng Java (logic thuần + nối thẳng xuống cơ sở dữ liệu) —
+xem [../docs/STRUCTURE.md](../docs/STRUCTURE.md) mục 7.
 
 ## Chuẩn bị
 

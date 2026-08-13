@@ -198,6 +198,18 @@ public class Order {
     }
 
     /**
+     * Bếp còn được thao tác lên món của đơn này không.
+     * <p>
+     * Đúng hai trạng thái mà bếp có việc để làm, khớp với điều kiện của truy vấn hàng chờ và
+     * của lệnh nhận việc. Đơn đã huỷ, đã hết hạn hay đã giao xong thì mọi thao tác bếp đều
+     * vô nghĩa — món hoặc không còn phải làm, hoặc đã ra khỏi cửa hàng.
+     */
+    public boolean isActiveForKitchen() {
+        return OrderStatus.CONFIRMED.name().equals(orderStatus)
+            || OrderStatus.PREPARING.name().equals(orderStatus);
+    }
+
+    /**
      * Còn khoản tiền nào cần hoàn sót lại không.
      * Huỷ đơn đã tự hoàn tiền, nên đây chỉ là lối sửa cho trường hợp bất thường.
      */

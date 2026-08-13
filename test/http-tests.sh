@@ -104,9 +104,13 @@ echo
 echo "════ 7. Bếp — màn hình KDS ════"
 login kit "kitchen1@fastfood.vn"
 code "Hàng chờ"            /kitchen/queue 200 "$JAR/kit.txt"
-code "Việc của tôi"        /kitchen/my-tasks 200 "$JAR/kit.txt"
 code "Sự cố"               /kitchen/issue 200 "$JAR/kit.txt"
 code "Đã hoàn thành"       /kitchen/history 200 "$JAR/kit.txt"
+# Việc của tôi và món chờ đưa ra quầy nay là hai khối trên chính trang hàng chờ
+has "Có khối việc đang làm"        /kitchen/queue 'id="kds-mytasks-count"' "$JAR/kit.txt"
+has "Có khối chờ bàn giao ra quầy" /kitchen/queue 'id="kds-handover-count"' "$JAR/kit.txt"
+# Địa chỉ cũ đã bỏ — còn sống nghĩa là servlet chưa xoá hết, hoặc đã lặng lẽ quay lại
+code "Địa chỉ cũ đã bỏ hẳn"        /kitchen/my-tasks 404 "$JAR/kit.txt"
 has "Có dấu hiệu tự cập nhật"      /kitchen/queue 'id="kds-watch"' "$JAR/kit.txt"
 has "Có khuôn dựng thẻ"            /kitchen/queue 'id="kds-card-template"' "$JAR/kit.txt"
 has "Có lưới thẻ để cập nhật"      /kitchen/queue 'id="kds-grid"' "$JAR/kit.txt"
@@ -122,8 +126,13 @@ echo "════ 8. Thu ngân ════"
 login sta "cashier1@fastfood.vn"
 code "Bán tại quầy"     /staff/pos 200 "$JAR/sta.txt"
 code "Đơn hàng"         /staff/orders 200 "$JAR/sta.txt"
-code "Sự cố bếp"          /staff/issues 200 "$JAR/sta.txt"
+code "Quầy giao nhận"   /staff/counter 200 "$JAR/sta.txt"
 code "Lịch sử"          /staff/history 200 "$JAR/sta.txt"
+# Ba khối cùng trả lời "món của đơn này đang ở đâu"; sự cố bếp không còn trang riêng
+has "Quầy có khối bếp vừa bàn giao" /staff/counter 'Bếp vừa bàn giao' "$JAR/sta.txt"
+has "Quầy có khối chờ khách tới lấy" /staff/counter 'Chờ khách tới lấy' "$JAR/sta.txt"
+has "Quầy có khối sự cố bếp"        /staff/counter 'Sự cố bếp đang mở' "$JAR/sta.txt"
+code "Địa chỉ cũ đã bỏ hẳn"         /staff/issues 404 "$JAR/sta.txt"
 # Nút thu tiền và ô số lượng chỉ hiện khi phiếu tính tiền đã có món, nên phải thêm món
 # thật vào phiếu rồi mới kiểm tra — đồng thời cũng là phép thử cho chính luồng bán hàng.
 curl -s -o /dev/null -b "$JAR/sta.txt" -c "$JAR/sta.txt" -L \
@@ -178,7 +187,10 @@ N1=$(printf '%s\n' "$P1" | grep -c .)
 N2=$(printf '%s\n' "$P2" | grep -c .)
 DUP=$(comm -12 <(printf '%s\n' "$P1" | sort) <(printf '%s\n' "$P2" | sort) | grep -c .)
 if [ "$N1" = "20" ]; then ok "Trang 1 đúng 20 dòng"; else bad "Trang 1 có $N1 dòng, mong 20"; fi
-if [ "$N2" -gt 0 ] && [ "$N2" -lt 20 ]; then ok "Trang 2 có $N2 dòng (phần còn lại)"; else bad "Trang 2 có $N2 dòng"; fi
+# Trang 2 đầy hay chỉ còn phần dư đều đúng — tuỳ số dòng nhật ký có sẵn. Ràng buộc "phải
+# nhỏ hơn 20" của bản trước là ngầm giả định nhật ký chỉ đủ hai trang, nên nó báo đỏ ngay
+# khi dữ liệu mẫu dày lên, trong khi phân trang vẫn chạy đúng.
+if [ "$N2" -gt 0 ] && [ "$N2" -le 20 ]; then ok "Trang 2 có $N2 dòng"; else bad "Trang 2 có $N2 dòng, mong 1–20"; fi
 if [ "$DUP" = "0" ]; then ok "Hai trang không lặp dòng nào"; else bad "$DUP dòng xuất hiện ở cả hai trang"; fi
 
 # Địa chỉ do người dùng gõ tay không được làm sập trang hay lọt số âm vào OFFSET.

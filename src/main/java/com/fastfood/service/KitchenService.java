@@ -2,6 +2,7 @@ package com.fastfood.service;
 
 import com.fastfood.common.constant.AuditAction;
 import com.fastfood.common.constant.IssueType;
+import com.fastfood.common.constant.OrderStatus;
 import com.fastfood.common.exception.BusinessException;
 import com.fastfood.common.exception.NotFoundException;
 import com.fastfood.common.exception.ValidationException;
@@ -136,6 +137,16 @@ public class KitchenService {
             }
             int changed = orderItemDAO.markReady(con, orderItemId, userId, now);
             if (changed == 0) {
+                // Đơn bị huỷ giữa lúc bếp đang nấu là chuyện có thật, và đầu bếp cần biết ngay
+                // để dừng tay — nói "chỉ người đang chế biến mới đánh dấu được" ở tình huống đó
+                // là sai và làm họ tưởng mình bấm nhầm nút.
+                Order order = orderDAO.findById(con, item.getOrderId());
+                if (order != null && !order.isActiveForKitchen()) {
+                    throw new BusinessException("Đơn #" + item.getOrderId() + " đã "
+                            + (OrderStatus.CANCELLED.name().equals(order.getOrderStatus())
+                               ? "bị huỷ" : "kết thúc")
+                            + " nên không đánh dấu món được nữa. Vui lòng dừng chế biến.");
+                }
                 throw new BusinessException("Chỉ người đang chế biến món này mới đánh dấu hoàn thành được.");
             }
             auditService.log(con, userId, "ORDER_ITEM", orderItemId,

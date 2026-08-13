@@ -580,7 +580,8 @@ Mỗi file **idempotent**: bọc `IF OBJECT_ID(...) IS NULL` / `DROP ... IF EXIS
 
 Plan đã được triển khai thành **một file duy nhất**:
 [`database/FastFoodPreorder.sql`](../database/FastFoodPreorder.sql) — 13 bảng · 17 index ·
-2 view · 6 trigger · dữ liệu mẫu · 7 truy vấn tự kiểm tra.
+2 view · 6 trigger · dữ liệu mẫu · 10 truy vấn tự kiểm tra. Không có file migration đi kèm:
+mỗi lần chạy đều dựng lại từ đầu nên không có bước nâng cấp nào để phải viết riêng.
 
 File **xoá và tạo lại toàn bộ bảng mỗi lần chạy**, nên luôn cho ra database sạch.
 `DROP TABLE` không bị các trigger chặn hard-delete cản, vì vậy vẫn giữ được cả hai:
@@ -593,8 +594,8 @@ ràng buộc BR-20 lúc vận hành, và khả năng dựng lại DB bất cứ 
 | 3 | Bật `READ_COMMITTED_SNAPSHOT ON` | ✅ Xong |
 | 4 | `DATETIME2(0)` cho mọi cột thời gian | ✅ Xong |
 | 5 | Trigger chặn hard-delete (5 bảng, có `OrderItem`) | ✅ Xong |
-| 6 | Dữ liệu mẫu phủ đủ 7 trạng thái | ✅ Xong — 11 đơn D1–D11 |
-| 7 | Truy vấn tự kiểm tra sau khi chạy | ✅ Xong — mục 8 trong file |
+| 6 | Dữ liệu mẫu phủ đủ 7 trạng thái | ✅ Xong — 11 đơn D1–D11, cả 13 bảng đều có dữ liệu |
+| 7 | Truy vấn tự kiểm tra sau khi chạy | ✅ Xong — mục 8 trong file, 10 bảng đối chiếu |
 | 8 | `pickup_code` định dạng `yyMMdd` + 4 ký tự, `VARCHAR(10)` | ✅ Xong |
 | 9 | Cột `row_version ROWVERSION` cho `Orders` | ⬜ Không làm — UPDATE có điều kiện (Phần C) đã đủ cho MVP |
 

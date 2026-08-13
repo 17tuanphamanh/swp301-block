@@ -20,7 +20,13 @@
       <tbody>
         <c:forEach var="it" items="${awaitingCounter}">
           <tr>
-            <td><a href="${ctx}/staff/order/detail?orderId=${it.orderId}">#${it.orderId}</a></td>
+            <td><a href="${ctx}/staff/order/detail?orderId=${it.orderId}">#${it.orderId}</a>
+              <%-- Đơn có thể bị huỷ sau khi bếp đã nấu xong. Món vẫn có thật nên vẫn phải
+                   hiện ra, nhưng để mang đi bỏ chứ không đưa cho khách. --%>
+              <c:if test="${it.orderClosed}">
+                <div><span class="tag tag-red">${ff:orderStatus(it.orderStatus)} — không giao</span></div>
+              </c:if>
+            </td>
             <td><c:out value="${it.productNameSnapshot}"/></td>
             <td class="center">${it.quantity}</td>
             <td class="small muted">

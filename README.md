@@ -63,7 +63,8 @@ Mật khẩu tất cả: **`123456`**
    Thử nhập sai mã: hệ thống từ chối và ghi lại lần thử sai vào nhật ký.
 
 Dữ liệu mẫu có sẵn 11 đơn phủ đủ bảy trạng thái, gồm cả đơn khách đến muộn và đơn món
-ra trễ hẹn, nên các màn hình đều có dữ liệu ngay từ lần chạy đầu.
+ra trễ hẹn, kèm giỏ hàng và tin đã gửi cho khách — cả 13 bảng đều có dữ liệu, nên mọi
+màn hình đều có thứ để xem ngay từ lần chạy đầu.
 
 ## Quy mô
 

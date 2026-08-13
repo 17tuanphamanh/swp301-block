@@ -15,6 +15,11 @@
    *** CẢNH BÁO: file này XOÁ và TẠO LẠI toàn bộ bảng mỗi lần chạy. ***
    Thiết kế như vậy để luôn cho ra một database sạch, không phụ thuộc trạng thái trước đó.
    Đừng chạy trên môi trường có dữ liệu thật.
+
+   ĐÂY LÀ FILE DATABASE DUY NHẤT của dự án — lược đồ, dữ liệu demo và bộ kiểm tra nằm chung
+   một chỗ, chạy một lần là xong. Không có file migration đi kèm: sửa lược đồ thì sửa thẳng
+   vào đây rồi chạy lại, vì mỗi lần chạy đều dựng lại từ đầu nên không có bước nâng cấp nào
+   để phải viết riêng.
    ---------------------------------------------------------------------------------------------
 
    NỘI DUNG
@@ -24,8 +29,9 @@
      4. 17 index
      5. 2 view           (suy ra trạng thái release & KPI đúng hẹn)
      6. 6 trigger        (BR-04 + chặn hard-delete BR-20)
-     7. Dữ liệu mẫu     (7 user · 13 món · 11 đơn phủ đủ 7 trạng thái)
-     8. Kiểm tra sau khi chạy
+     7. Dữ liệu mẫu     (7 user · 13 món · 2 giỏ hàng · 11 đơn phủ đủ 7 trạng thái ·
+                          tin báo và nhật ký thao tác suy ra từ chính các mốc thời gian)
+     8. Kiểm tra sau khi chạy — 10 bảng đối chiếu, in ra ngay sau khi chạy xong
 
    BA TÊN BẢNG KHÁC TÀI LIỆU — vì trùng từ khoá SQL Server:
      User -> Users        Order -> Orders        Transaction -> PaymentTransaction
@@ -699,6 +705,39 @@ FROM (VALUES
 JOIN dbo.Category c ON c.name = v.category_name;
 GO
 
+/* ------------------------------------- Giỏ hàng mẫu ---------------------------------------
+   Hai giỏ, mỗi giỏ dựng sẵn một tình huống khác nhau của màn hình /cart:
+
+     customer1 — giỏ sạch, bấm Đặt hàng là đi thẳng sang trang thanh toán.
+     customer2 — trong giỏ có món vừa hết hàng. Đây mới là cái đáng dựng sẵn: giỏ hàng đọc
+                 kèm is_available và trạng thái danh mục để chặn thanh toán và hiện dải cảnh
+                 báo "bỏ món hết hàng ra". Nếu không có giỏ nào ở tình trạng đó thì nhánh
+                 xử lý ấy chỉ chạy được sau khi tự tay đi tắt một món trong trang quản trị.
+
+   Chỉ khách Online mới có giỏ trong DB; giỏ của thu ngân nằm trong session nên không ghi
+   xuống đây. Giỏ là dữ liệu nháp — không có audit log, không có ràng buộc nào ràng nó với
+   đơn hàng, và OrderService dọn sạch giỏ ngay sau khi đặt hàng thành công.
+   ------------------------------------------------------------------------------------------ */
+INSERT INTO dbo.Cart (user_id, updated_at)
+SELECT u.user_id, DATEADD(MINUTE, -20, SYSDATETIME())
+FROM   dbo.Users u
+WHERE  u.email IN ('customer1@gmail.com', 'customer2@gmail.com');
+GO
+
+INSERT INTO dbo.CartItem (cart_id, product_id, quantity)
+SELECT c.cart_id, p.product_id, v.quantity
+FROM (VALUES
+        ('customer1@gmail.com', N'Burger Bò Phô Mai',    1),
+        ('customer1@gmail.com', N'Khoai Tây Chiên (M)',  2),
+        ('customer2@gmail.com', N'Pepsi (M)',            2),
+        -- món tạm hết hàng: chính là thứ làm nút thanh toán của customer2 bị khoá
+        ('customer2@gmail.com', N'Gà Rán Cay Hàn Quốc',  1)
+     ) AS v(email, product_name, quantity)
+JOIN dbo.Users   u ON u.email   = v.email
+JOIN dbo.Cart    c ON c.user_id = u.user_id
+JOIN dbo.Product p ON p.name    = v.product_name;
+GO
+
 /* ------------------------------------- Đơn hàng mẫu ---------------------------------------
    11 đơn phủ đủ bảy trạng thái và các tình huống ngoại lệ quan trọng.
    Mọi mốc thời gian tính tương đối so với lúc chạy file, nên dữ liệu luôn hợp lý:
@@ -784,29 +823,39 @@ VALUES (@o, 'ONLINE_GATEWAY', 114000, 'PAID', DATEADD(MINUTE,-10,@now), DATEADD(
 SET @pay = SCOPE_IDENTITY();
 INSERT INTO dbo.PaymentTransaction (payment_id, gateway, external_transaction_id, status, raw_reference, created_at)
 VALUES (@pay, 'MOCK', 'MOCK-TXN-0003', 'SUCCESS', N'{"code":"00","message":"Success"}', DATEADD(MINUTE,-9,@now));
-INSERT INTO dbo.Notification (user_id, order_id, channel, event_type, content, status, sent_at)
-VALUES (@cus1, @o, 'MOCK', 'ORDER_CONFIRMED', N'Đơn đã được xác nhận. Mã nhận hàng: ' + @day + 'A1C7', 'SENT', DATEADD(MINUTE,-9,@now));
 INSERT INTO dbo.AuditLog (actor_id, entity_type, entity_id, action, new_value, created_at) VALUES
  (NULL, 'PAYMENT', CAST(@pay AS VARCHAR(50)), 'PAYMENT_PAID', 'PAID',      DATEADD(MINUTE,-9,@now)),
  (NULL, 'ORDER',   CAST(@o   AS VARCHAR(50)), 'AUTO_CONFIRM', 'CONFIRMED', DATEADD(MINUTE,-9,@now));
 
-/* -- D4 · Online · bếp đang làm dở · 130.000 ----------------------------------------------- */
+/* -- D4 · Online · bếp làm xong một món, còn một món · 130.000 ------------------------------
+   Đơn hai món với đúng một món đã xong là trạng thái mở khoá nút "bàn giao ra quầy" của bếp —
+   khối quan trọng nhất trên màn hình bếp, vì trước khi có nó món nấu xong không còn nằm trong
+   danh sách nào. Thiếu đơn này thì khối đó rỗng ngay sau khi cài, không có gì để thử.
+
+   Cả hai món đều của kitchen1, một xong một đang làm. Nhờ vậy màn hình bếp có đủ việc ở cả ba
+   khối cùng lúc — thiếu một khối là mất một nút không thử được.
+
+   Đơn vẫn ở PREPARING vì món kia chưa xong (BR-11), và đó chính là điều đáng thấy: món xong
+   trước được mang ra quầy ngay thay vì nằm lại chờ món cuối rồi nguội. */
 INSERT INTO dbo.Orders (customer_id, order_source, total_amount, order_status, idempotency_key,
                         pickup_time, kitchen_release_at, released_to_kds_at, pickup_code, created_at)
 VALUES (@cus2, 'ONLINE_PREORDER', 130000, 'PREPARING', 'demo-0004',
         DATEADD(MINUTE,15,@now), DATEADD(MINUTE,-5,@now), DATEADD(MINUTE,-5,@now), @day+'B2D8', DATEADD(MINUTE,-30,@now));
 SET @o = SCOPE_IDENTITY();
-INSERT INTO dbo.OrderItem (order_id, product_id, product_name_snapshot, unit_price, quantity, item_status, assigned_to_user_id, started_at) VALUES
- (@o, @pGa3,    N'Gà Rán 3 Miếng',      95000, 1, 'PREPARING', @kit1, DATEADD(MINUTE,-4,@now)),
- (@o, @pKhoaiL, N'Khoai Tây Chiên (L)', 35000, 1, 'WAITING',   NULL,  NULL);
+INSERT INTO dbo.OrderItem (order_id, product_id, product_name_snapshot, unit_price, quantity, item_status, assigned_to_user_id, started_at, ready_at) VALUES
+ (@o, @pGa3,    N'Gà Rán 3 Miếng',      95000, 1, 'READY',     @kit1, DATEADD(MINUTE,-4,@now), DATEADD(MINUTE,-1,@now)),
+ (@o, @pKhoaiL, N'Khoai Tây Chiên (L)', 35000, 1, 'PREPARING', @kit1, DATEADD(MINUTE,-3,@now), NULL);
 INSERT INTO dbo.Payment (order_id, method, amount, payment_status, created_at, paid_at)
 VALUES (@o, 'ONLINE_GATEWAY', 130000, 'PAID', DATEADD(MINUTE,-30,@now), DATEADD(MINUTE,-29,@now));
 SET @pay = SCOPE_IDENTITY();
 INSERT INTO dbo.PaymentTransaction (payment_id, gateway, external_transaction_id, status, created_at)
 VALUES (@pay, 'MOCK', 'MOCK-TXN-0004', 'SUCCESS', DATEADD(MINUTE,-29,@now));
+/* Chỉ ghi tay sự kiện mức đơn. Sự kiện mức món do khối suy ra ở cuối tệp sinh — viết tay ở
+   đây phải tự nhập entity_id, mà mã món chỉ biết được sau khi INSERT nên rất dễ ghi nhầm
+   thành mã đơn. Bản trước đã nhầm đúng như vậy: entity_type ghi ORDER_ITEM nhưng entity_id
+   lại là mã đơn, bấm vào trong màn hình nhật ký thì ra nhầm bản ghi. */
 INSERT INTO dbo.AuditLog (actor_id, entity_type, entity_id, action, new_value, created_at) VALUES
- (NULL,  'ORDER',      CAST(@o AS VARCHAR(50)), 'KDS_RELEASE', 'RELEASED',  DATEADD(MINUTE,-5,@now)),
- (@kit1, 'ORDER_ITEM', CAST(@o AS VARCHAR(50)), 'ITEM_START',  'PREPARING', DATEADD(MINUTE,-4,@now));
+ (NULL,  'ORDER',      CAST(@o AS VARCHAR(50)), 'KDS_RELEASE', 'RELEASED',  DATEADD(MINUTE,-5,@now));
 
 /* -- D5 · Online · sẵn sàng, đúng hẹn · 98.000 --------------------------------------------- */
 INSERT INTO dbo.Orders (customer_id, order_source, total_amount, order_status, idempotency_key,
@@ -822,8 +871,6 @@ VALUES (@o, 'ONLINE_GATEWAY', 98000, 'PAID', DATEADD(MINUTE,-40,@now), DATEADD(M
 SET @pay = SCOPE_IDENTITY();
 INSERT INTO dbo.PaymentTransaction (payment_id, gateway, external_transaction_id, status, created_at)
 VALUES (@pay, 'MOCK', 'MOCK-TXN-0005', 'SUCCESS', DATEADD(MINUTE,-39,@now));
-INSERT INTO dbo.Notification (user_id, order_id, channel, event_type, content, status, sent_at)
-VALUES (@cus1, @o, 'MOCK', 'ORDER_READY', N'Đơn của bạn đã sẵn sàng. Mã nhận hàng: ' + @day + 'C3E9', 'SENT', DATEADD(MINUTE,-2,@now));
 
 /* -- D6 · Online · sẵn sàng nhưng khách chưa tới, đã quá hẹn 40 phút · 259.000 -------------
    Chỉ được đánh dấu để nhân viên chú ý; không tự huỷ, không tự hoàn tiền. */
@@ -933,7 +980,11 @@ VALUES (@pay, 'MOCK', 'MOCK-TXN-0011', 'SUCCESS', DATEADD(MINUTE,-199,@now));
 
 /* -- Bàn giao món giữa bếp và quầy cho dữ liệu mẫu -----------------------------------------
    Đặt ở cuối, sau khi mọi đơn đã có đủ món, để viết theo trạng thái đơn thay vì phải nhớ
-   từng mã đơn. Ba mức khác nhau là cố ý — mỗi mức mở ra một thao tác để thử: */
+   từng mã đơn. Bốn mức khác nhau là cố ý — mỗi mức mở ra một thao tác để thử.
+
+   Mức "đã xong mà còn trong bếp" KHÔNG nằm ở đây mà nằm ngay tại D4: nó là món đầu tiên của
+   một đơn hai món, nên không viết được bằng điều kiện theo trạng thái đơn. Xem lại mục 8.6
+   sau khi sửa dữ liệu mẫu — mức nào rơi về 0 là một màn hình mất chỗ để thử. */
 
 /* Đơn đã giao cho khách thì hiển nhiên đã đi qua cả hai bước. */
 UPDATE oi
@@ -961,16 +1012,174 @@ WHERE  o.idempotency_key = 'demo-0005';
 GO
 
 
+/* -- Tin đã gửi cho khách ------------------------------------------------------------------
+   Suy ra từ các mốc thời gian của đơn, cùng lý do như khối nhật ký ngay bên dưới: viết tay
+   ở từng đơn thì luôn sót. Bản trước chỉ có hai dòng cho mười một đơn — trong khi hai loại
+   tin xấu (đơn bị huỷ, đơn hết hiệu lực) không có lấy một dòng nào, dù đó chính là hai loại
+   tin mà thiếu chúng khách sẽ mất tiền hoặc mất đơn trong im lặng.
+
+   Bốn điều kiện dưới đây khớp đúng với NotificationService: chỉ đơn ONLINE_PREORDER và chỉ
+   khi đơn có chủ. Khách mua tại quầy đứng ngay đó nên không có tin nào, và đó là lý do
+   Notification.user_id để NULL được dù bảng vẫn bắt buộc có order_id.
+
+   Nội dung dựng đúng theo mẫu câu của NotificationService — kèm số tiền, giờ hẹn và mã nhận
+   hàng. MVP chưa có màn hình nào hiển thị các tin này (kênh gửi là MOCK, nội dung chỉ ra
+   log), nên chúng phục vụ việc đối soát: tra thẳng bằng SQL để kiểm chứng rằng mỗi bước
+   trong vòng đời đơn đều đã báo cho khách, và báo bằng đúng câu chữ mà mã nguồn sinh ra.
+   ------------------------------------------------------------------------------------------ */
+;WITH don AS (
+    SELECT  o.order_id, o.customer_id, o.pickup_time, o.ready_at, o.cancelled_at, o.expired_at,
+            ma_nhan = ISNULL(o.pickup_code, '---'),
+            /* 259000.00 -> "259.000 đ", giống MoneyUtil.format.
+               Không dùng FORMAT vì Azure SQL Edge không bật CLR — xem ghi chú ở phần đơn hàng.
+               CONVERT kiểu 1 cho ra "259,000.00": cắt ba ký tự cuối rồi đổi dấu phân nhóm. */
+            tien = REPLACE(LEFT(CONVERT(VARCHAR(30), CAST(o.total_amount AS MONEY), 1),
+                                LEN(CONVERT(VARCHAR(30), CAST(o.total_amount AS MONEY), 1)) - 3),
+                           ',', '.') + N' đ',
+            -- "dd/MM/yyyy HH:mm", giống DateTimeUtil.format
+            gio_hen = CONVERT(VARCHAR(10), o.pickup_time, 103) + ' ' + CONVERT(VARCHAR(5), o.pickup_time, 108),
+            da_tra  = (SELECT MIN(p.paid_at) FROM dbo.Payment p
+                       WHERE p.order_id = o.order_id AND p.paid_at IS NOT NULL),
+            da_hoan = CASE WHEN EXISTS (SELECT 1 FROM dbo.Payment p
+                                        WHERE p.order_id = o.order_id AND p.refunded_at IS NOT NULL)
+                           THEN 1 ELSE 0 END
+    FROM    dbo.Orders o
+    WHERE   o.order_source = 'ONLINE_PREORDER' AND o.customer_id IS NOT NULL
+), tin AS (
+    /* Tiền vào là đơn được xác nhận (BR-07) — tin này mang mã nhận hàng tới cho khách */
+    SELECT d.customer_id, d.order_id, 'ORDER_CONFIRMED' AS event_type, d.da_tra AS sent_at,
+           N'Đơn #' + CAST(d.order_id AS NVARCHAR(20)) + N' đã thanh toán thành công ' + d.tien
+         + N'. Giờ nhận hàng: ' + d.gio_hen + N'. Mã nhận hàng: ' + d.ma_nhan + N'.' AS content
+    FROM   don d WHERE d.da_tra IS NOT NULL
+    UNION ALL
+    /* Món xong — nhắc lại giờ hẹn và mã, vì đây là tin khách mở ra lúc đang trên đường tới */
+    SELECT d.customer_id, d.order_id, 'ORDER_READY', d.ready_at,
+           N'Món của bạn đã sẵn sàng. Vui lòng đến quầy trước ' + d.gio_hen
+         + N' và đưa mã ' + d.ma_nhan + N' để nhận hàng.'
+    FROM   don d WHERE d.ready_at IS NOT NULL
+    UNION ALL
+    /* Huỷ — nói thẳng tiền có được hoàn hay không, đây là câu khách hỏi đầu tiên */
+    SELECT d.customer_id, d.order_id, 'ORDER_CANCELLED', d.cancelled_at,
+           N'Đơn #' + CAST(d.order_id AS NVARCHAR(20)) + N' đã bị huỷ.'
+         + CASE WHEN d.da_hoan = 1
+                THEN N' Toàn bộ ' + d.tien + N' đã được hoàn lại về phương thức thanh toán ban đầu.'
+                ELSE N'' END
+    FROM   don d WHERE d.cancelled_at IS NOT NULL
+    UNION ALL
+    /* Hết hiệu lực vì quá hạn thanh toán — chưa từng thu tiền nên không có chuyện hoàn */
+    SELECT d.customer_id, d.order_id, 'ORDER_EXPIRED', d.expired_at,
+           N'Đơn #' + CAST(d.order_id AS NVARCHAR(20))
+         + N' không được thanh toán trong thời gian giữ chỗ nên đã hết hiệu lực. '
+         + N'Bạn không bị trừ tiền. Vui lòng đặt lại nếu vẫn muốn dùng bữa.'
+    FROM   don d WHERE d.expired_at IS NOT NULL
+)
+INSERT INTO dbo.Notification (user_id, order_id, channel, event_type, content, status, sent_at)
+SELECT t.customer_id, t.order_id, 'MOCK', t.event_type, t.content, 'SENT', t.sent_at
+FROM   tin t
+WHERE  t.sent_at IS NOT NULL;
+GO
+
+
+/* -- Nhật ký thao tác cho dữ liệu mẫu ------------------------------------------------------
+   NFR-08 liệt kê các sự kiện bắt buộc phải có vết. Viết tay từng dòng ở mỗi đơn thì luôn sót:
+   ở bản trước, 11 đơn đi hết vòng đời chỉ để lại 12 dòng — năm đơn đã giao khách mà chỉ hai
+   dòng HANDOFF, và không dòng nào cho việc bàn giao bếp→quầy.
+
+   Nên phần này SUY RA từ chính các mốc thời gian đã ghi trong đơn. Cách viết đó có hai cái
+   được: không sót đơn nào, và nhật ký không bao giờ mâu thuẫn với dữ liệu nó mô tả.
+
+   Chỉ chèn cho sự kiện CHƯA có dòng, để những dòng viết tay ở trên (mang thông tin riêng như
+   lý do huỷ) được giữ nguyên. */
+
+DECLARE @cash1 INT = (SELECT user_id FROM dbo.Users WHERE email = 'cashier1@fastfood.vn');
+
+;WITH moi AS (
+    /* Thanh toán thành công */
+    SELECT NULL AS actor, 'PAYMENT' AS et, p.payment_id AS eid, 'PAYMENT_PAID' AS act,
+           NULL AS ov, 'PAID' AS nv, p.paid_at AS t
+    FROM dbo.Payment p WHERE p.paid_at IS NOT NULL
+    UNION ALL
+    /* Hoàn tiền */
+    SELECT @cash1, 'PAYMENT', p.payment_id, 'PAYMENT_REFUNDED', 'PAID', 'REFUNDED', p.refunded_at
+    FROM dbo.Payment p WHERE p.refunded_at IS NOT NULL
+    UNION ALL
+    /* Hệ thống tự xác nhận đơn đặt trước sau khi tiền vào (BR-07) — actor để trống */
+    SELECT NULL, 'ORDER', o.order_id, 'AUTO_CONFIRM', 'PENDING_PAYMENT', 'CONFIRMED', o.created_at
+    FROM dbo.Orders o
+    WHERE o.order_source = 'ONLINE_PREORDER'
+      AND o.order_status NOT IN ('PENDING_PAYMENT','EXPIRED')
+    UNION ALL
+    /* Thu ngân xác nhận đơn tại quầy (BR-10) */
+    SELECT o.created_by_user_id, 'ORDER', o.order_id, 'POS_CONFIRM', NULL, 'CONFIRMED', o.created_at
+    FROM dbo.Orders o WHERE o.order_source = 'POS'
+    UNION ALL
+    /* Bộ hẹn giờ đưa đơn xuống bếp — actor để trống là dấu hiệu việc do hệ thống làm */
+    SELECT NULL, 'ORDER', o.order_id, 'KDS_RELEASE', NULL, 'RELEASED', o.released_to_kds_at
+    FROM dbo.Orders o WHERE o.released_to_kds_at IS NOT NULL
+    UNION ALL
+    /* Bếp nhận việc và báo xong từng món */
+    SELECT oi.assigned_to_user_id, 'ORDER_ITEM', oi.order_item_id, 'ITEM_START', 'WAITING', 'PREPARING', oi.started_at
+    FROM dbo.OrderItem oi WHERE oi.started_at IS NOT NULL
+    UNION ALL
+    SELECT oi.assigned_to_user_id, 'ORDER_ITEM', oi.order_item_id, 'ITEM_READY', 'PREPARING', 'READY', oi.ready_at
+    FROM dbo.OrderItem oi WHERE oi.ready_at IS NOT NULL
+    UNION ALL
+    /* Hai lần bàn giao của hai người khác nhau (BR-25) */
+    SELECT oi.handed_over_by, 'ORDER_ITEM', oi.order_item_id, 'ITEM_HANDED_OVER', 'READY', 'AT_COUNTER', oi.handed_over_at
+    FROM dbo.OrderItem oi WHERE oi.handed_over_at IS NOT NULL
+    UNION ALL
+    SELECT oi.received_by, 'ORDER_ITEM', oi.order_item_id, 'ITEM_RECEIVED', 'AT_COUNTER', 'RECEIVED', oi.received_at
+    FROM dbo.OrderItem oi WHERE oi.received_at IS NOT NULL
+    UNION ALL
+    /* Cả đơn sẵn sàng — do backend tổng hợp từ các món (BR-11) */
+    SELECT NULL, 'ORDER', o.order_id, 'ORDER_READY', 'PREPARING', 'READY', o.ready_at
+    FROM dbo.Orders o WHERE o.ready_at IS NOT NULL
+    UNION ALL
+    /* Đối chiếu mã và giao món cho khách */
+    SELECT o.handoff_by_user_id, 'ORDER', o.order_id, 'PICKUP_VERIFY_OK', NULL, o.pickup_code, o.picked_up_at
+    FROM dbo.Orders o WHERE o.picked_up_at IS NOT NULL AND o.pickup_code IS NOT NULL
+    UNION ALL
+    SELECT o.handoff_by_user_id, 'ORDER', o.order_id, 'HANDOFF', 'READY', 'COMPLETED', o.picked_up_at
+    FROM dbo.Orders o WHERE o.picked_up_at IS NOT NULL
+    UNION ALL
+    /* Kết thúc bất thường */
+    SELECT NULL, 'ORDER', o.order_id, 'ORDER_EXPIRED', 'PENDING_PAYMENT', 'EXPIRED', o.expired_at
+    FROM dbo.Orders o WHERE o.expired_at IS NOT NULL
+    UNION ALL
+    SELECT NULL, 'ORDER', o.order_id, 'ORDER_CANCELLED', NULL, 'CANCELLED', o.cancelled_at
+    FROM dbo.Orders o WHERE o.cancelled_at IS NOT NULL
+    UNION ALL
+    /* Sự cố bếp */
+    SELECT ki.created_by, 'ORDER_ITEM', ki.order_item_id, 'ISSUE_OPENED', NULL, ki.issue_type, ki.created_at
+    FROM dbo.KitchenIssue ki
+    UNION ALL
+    SELECT ki.created_by, 'ORDER_ITEM', ki.order_item_id, 'ISSUE_RESOLVED', 'OPEN', 'RESOLVED', ki.resolved_at
+    FROM dbo.KitchenIssue ki WHERE ki.resolved_at IS NOT NULL
+)
+INSERT INTO dbo.AuditLog (actor_id, entity_type, entity_id, action, old_value, new_value, created_at)
+SELECT m.actor, m.et, CAST(m.eid AS VARCHAR(50)), m.act, m.ov, m.nv, m.t
+FROM   moi m
+WHERE  m.t IS NOT NULL
+  AND  NOT EXISTS (SELECT 1 FROM dbo.AuditLog a
+                   WHERE a.entity_type = m.et
+                     AND a.entity_id   = CAST(m.eid AS VARCHAR(50))
+                     AND a.action      = m.act);
+GO
+
+
 /* =============================================================================================
    8. KIỂM TRA SAU KHI CHẠY
    Chạy xong file, đối chiếu các bảng kết quả bên dưới. Nếu khớp là database đã sẵn sàng.
    ============================================================================================= */
 
-/* 8.1 · Số lượng bản ghi từng bảng */
+/* 8.1 · Số lượng bản ghi từng bảng — kỳ vọng cả 13 bảng đều khác 0.
+        Bảng nào bằng 0 nghĩa là có một màn hình chưa có dữ liệu để thử. */
 SELECT 'Role' AS bang, COUNT(*) AS so_dong FROM dbo.Role
 UNION ALL SELECT 'Users',              COUNT(*) FROM dbo.Users
 UNION ALL SELECT 'Category',           COUNT(*) FROM dbo.Category
 UNION ALL SELECT 'Product',            COUNT(*) FROM dbo.Product
+UNION ALL SELECT 'Cart',               COUNT(*) FROM dbo.Cart
+UNION ALL SELECT 'CartItem',           COUNT(*) FROM dbo.CartItem
 UNION ALL SELECT 'Orders',             COUNT(*) FROM dbo.Orders
 UNION ALL SELECT 'OrderItem',          COUNT(*) FROM dbo.OrderItem
 UNION ALL SELECT 'Payment',            COUNT(*) FROM dbo.Payment
@@ -1010,20 +1219,28 @@ JOIN    dbo.OrderItem oi ON oi.order_id = o.order_id
 GROUP BY o.order_id, o.total_amount
 HAVING  o.total_amount <> SUM(oi.unit_price * oi.quantity);
 
-/* 8.6 · Đường đi của món từ bếp ra quầy (BR-25). Dữ liệu mẫu cố ý dựng đủ ba mức để mỗi
-        màn hình đều có việc để thử ngay sau khi cài:
-          "con trong bep"  → bếp bấm được nút bàn giao ở /kitchen/queue
-          "dang cho o quay" → thu ngân bấm được nút nhận ở /staff/counter
-          "quay da nhan"    → giao được cho khách ở /staff/order/detail
-        Kỳ vọng cả ba mức đều KHÁC 0. Mức nào bằng 0 thì màn hình tương ứng mở ra trống trơn. */
-SELECT  CASE WHEN oi.received_at    IS NOT NULL THEN N'quay da nhan'
-             WHEN oi.handed_over_at IS NOT NULL THEN N'dang cho o quay'
-             ELSE                                    N'con trong bep' END AS vi_tri_mon,
+/* 8.6 · Đường đi của món từ bếp ra quầy (BR-25). Dữ liệu mẫu cố ý dựng đủ BỐN mức, mỗi mức
+        mở khoá một nút ở một màn hình khác nhau:
+          "1 chua nau xong"        → bếp bấm nhận việc / báo xong ở /kitchen/queue
+          "2 xong, con trong bep"  → bếp bấm BÀN GIAO ra quầy ở /kitchen/queue
+          "3 dang cho o quay"      → thu ngân bấm NHẬN món ở /staff/counter
+          "4 quay da nhan"         → giao cho khách ở /staff/order/detail
+        Kỳ vọng cả bốn mức đều KHÁC 0. Mức nào bằng 0 thì màn hình tương ứng mở ra trống trơn.
+
+        Tách mức 1 khỏi mức 2 là có lý do: gộp chung thì con số luôn khác 0 nhờ các món còn
+        đang chờ nấu, và việc thiếu hẳn món "đã xong mà chưa ai mang ra" bị che mất — đúng
+        cái lỗ mà bản kiểm tra đầu tiên đã để lọt. */
+SELECT  CASE WHEN oi.received_at     IS NOT NULL   THEN N'4 quay da nhan'
+             WHEN oi.handed_over_at  IS NOT NULL   THEN N'3 dang cho o quay'
+             WHEN oi.item_status      = 'READY'    THEN N'2 xong, con trong bep'
+             ELSE                                       N'1 chua nau xong' END AS vi_tri_mon,
         COUNT(*) AS so_mon
 FROM    dbo.OrderItem oi
-GROUP BY CASE WHEN oi.received_at    IS NOT NULL THEN N'quay da nhan'
-              WHEN oi.handed_over_at IS NOT NULL THEN N'dang cho o quay'
-              ELSE                                   N'con trong bep' END;
+GROUP BY CASE WHEN oi.received_at     IS NOT NULL   THEN N'4 quay da nhan'
+              WHEN oi.handed_over_at  IS NOT NULL   THEN N'3 dang cho o quay'
+              WHEN oi.item_status      = 'READY'    THEN N'2 xong, con trong bep'
+              ELSE                                       N'1 chua nau xong' END
+ORDER BY vi_tri_mon;
 
 /* 8.7 · Không món nào được nhận mà chưa qua bàn giao. CK_OrderItem_handover đã chặn ở tầng
         dữ liệu, câu này chỉ để nhìn thấy điều đó bằng mắt.
@@ -1032,7 +1249,34 @@ SELECT  oi.order_item_id, oi.order_id, oi.handed_over_at, oi.received_at
 FROM    dbo.OrderItem oi
 WHERE   oi.received_at IS NOT NULL AND oi.handed_over_at IS NULL;
 
-/* 8.8 · Giờ của SQL Server — phải khớp giờ máy chạy Tomcat, lệch dưới 5 giây.
-        Lệch giờ sẽ khiến đơn được đưa xuống bếp sai thời điểm. */
+/* 8.8 · Tin đã gửi cho khách, đếm theo loại sự kiện.
+        Kỳ vọng đủ CẢ BỐN loại. Thiếu ORDER_CANCELLED hoặc ORDER_EXPIRED là dấu hiệu dữ liệu
+        mẫu chỉ dựng đường đi thuận lợi — hai nhánh khách mất đơn hoặc mất tiền không có gì
+        để xem. Tin chỉ sinh cho đơn đặt trước; đơn tại quầy không có tin nào là đúng. */
+SELECT  n.event_type AS loai_tin, COUNT(*) AS so_tin, MAX(n.sent_at) AS gui_gan_nhat
+FROM    dbo.Notification n
+GROUP BY n.event_type
+ORDER BY loai_tin;
+
+/* 8.9 · Hai giỏ hàng mẫu — cột dat_hang_duoc phải có cả 1 và 0.
+        Giỏ bị chặn (customer2) là giỏ có món vừa hết hàng: nó dựng sẵn dải cảnh báo và nút
+        "bỏ món hết hàng ra" ở /cart, thứ không tự xuất hiện nếu mọi món đều còn bán. */
+SELECT  u.email,
+        COUNT(ci.cart_item_id) AS so_dong,
+        SUM(ci.quantity)       AS tong_so_luong,
+        SUM(ci.quantity * p.price) AS tam_tinh,
+        CASE WHEN SUM(CASE WHEN p.is_available = 1 AND p.status = 'ACTIVE' AND c.status = 'ACTIVE'
+                           THEN 0 ELSE 1 END) = 0
+             THEN 1 ELSE 0 END AS dat_hang_duoc
+FROM    dbo.Cart     ca
+JOIN    dbo.Users    u  ON u.user_id     = ca.user_id
+JOIN    dbo.CartItem ci ON ci.cart_id    = ca.cart_id
+JOIN    dbo.Product  p  ON p.product_id  = ci.product_id
+JOIN    dbo.Category c  ON c.category_id = p.category_id
+GROUP BY u.email
+ORDER BY u.email;
+
+/* 8.10 · Giờ của SQL Server — phải khớp giờ máy chạy Tomcat, lệch dưới 5 giây.
+         Lệch giờ sẽ khiến đơn được đưa xuống bếp sai thời điểm. */
 SELECT SYSDATETIME() AS gio_sql_server, DB_NAME() AS database_hien_tai;
 GO

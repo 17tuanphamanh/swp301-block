@@ -38,6 +38,7 @@ public class OrderItem {
     private String handedOverByName;
     private String receivedByName;
     private String orderSource;
+    private String orderStatus;
     private LocalDateTime pickupTime;
     private int openIssueCount;
 
@@ -94,6 +95,21 @@ public class OrderItem {
 
     public String getOrderSource() { return orderSource; }
     public void setOrderSource(String orderSource) { this.orderSource = orderSource; }
+
+    public String getOrderStatus() { return orderStatus; }
+    public void setOrderStatus(String orderStatus) { this.orderStatus = orderStatus; }
+
+    /**
+     * Đơn của món này đã bị đóng lại.
+     * <p>
+     * Món vẫn có thật và vẫn phải xử lý — nhưng là mang đi bỏ chứ không đưa cho khách.
+     */
+    public boolean isOrderClosed() {
+        return orderStatus != null
+            && !"CONFIRMED".equals(orderStatus)
+            && !"PREPARING".equals(orderStatus)
+            && !"READY".equals(orderStatus);
+    }
 
     public LocalDateTime getPickupTime() { return pickupTime; }
     public void setPickupTime(LocalDateTime pickupTime) { this.pickupTime = pickupTime; }
