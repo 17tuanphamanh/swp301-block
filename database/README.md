@@ -11,7 +11,7 @@ Hoặc mở file trong SSMS rồi nhấn F5. Yêu cầu SQL Server 2016 trở l�
 > **File xoá và tạo lại toàn bộ bảng mỗi lần chạy.** Thiết kế như vậy để luôn cho ra
 > một database sạch, không phụ thuộc trạng thái trước đó. Đừng chạy trên dữ liệu thật.
 
-Chạy xong, file tự in ra 6 bảng kiểm tra ở cuối — đối chiếu để biết database đã sẵn sàng:
+Chạy xong, file tự in ra 8 bảng kiểm tra ở cuối — đối chiếu để biết database đã sẵn sàng:
 
 | Mục | Kỳ vọng |
 |---|---|
@@ -20,11 +20,16 @@ Chạy xong, file tự in ra 6 bảng kiểm tra ở cuối — đối chiếu �
 | 8.3 Đơn hàng | 11 đơn, đủ 7 trạng thái, có 1 đơn quá hạn nhận |
 | 8.4 Tỷ lệ đúng hẹn | 4 đơn, đúng hẹn 3 → 75% |
 | 8.5 Đối soát tiền | **không có dòng nào** |
-| 8.6 Giờ SQL Server | khớp giờ máy chạy Tomcat, lệch dưới 5 giây |
+| 8.6 Vị trí món | cả ba mức (còn trong bếp · đang chờ ở quầy · quầy đã nhận) đều khác 0 |
+| 8.7 Thứ tự bàn giao | **không có dòng nào** |
+| 8.8 Giờ SQL Server | khớp giờ máy chạy Tomcat, lệch dưới 5 giây |
+
+Mục 8.6 đáng nhìn kỹ: mức nào bằng 0 thì màn hình tương ứng mở ra trống trơn, không có gì để
+thử. Ba mức là cố ý — mỗi mức mở khoá một thao tác ở một màn hình khác nhau.
 
 ## Nội dung file
 
-13 bảng · 15 index · 2 view · 6 trigger · dữ liệu mẫu (7 user, 13 món, 11 đơn).
+13 bảng · 17 index · 2 view · 6 trigger · dữ liệu mẫu (7 user, 13 món, 11 đơn).
 
 Ba tên bảng khác tài liệu phân tích vì trùng từ khoá SQL Server:
 

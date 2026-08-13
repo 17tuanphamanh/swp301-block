@@ -1,17 +1,11 @@
 <c:set var="pageTitle" value="Tài khoản" /><c:set var="nav" value="users" />
-<!DOCTYPE html>
-<html lang="vi">
-<head><jsp:include page="/WEB-INF/views/layout/head.jsp"/></head>
-<body>
-<jsp:include page="/WEB-INF/views/layout/header.jsp"/>
-
-<main class="container">
+<%@ include file="/WEB-INF/views/layout/page-start.jspf" %>
   <div class="page-head">
     <h1>Tài khoản</h1>
     <p>Nhân viên nghỉ việc thì khoá tài khoản, không xoá — để lịch sử đơn người đó xử lý vẫn tra được.</p>
   </div>
 
-  <jsp:include page="/WEB-INF/views/layout/flash.jsp"/>
+  <%@ include file="/WEB-INF/views/layout/flash.jspf" %>
 
   <div class="grid grid-side">
     <div>
@@ -19,7 +13,7 @@
         <form method="get" action="${ctx}/admin/users" class="form-row">
           <div class="field">
             <label for="keyword">Tìm theo tên hoặc email</label>
-            <input type="search" id="keyword" name="keyword" value="${keyword}">
+            <input type="search" id="keyword" name="keyword" value="<c:out value="${keyword}"/>">
           </div>
           <div class="field">
             <label for="roleFilter">Vai trò</label>
@@ -36,18 +30,18 @@
 
       <div class="card pad0 table-wrap">
         <table>
-          <thead><tr><th>Họ tên</th><th>Email</th><th>Vai trò</th><th>Trạng thái</th><th></th></tr></thead>
+          <thead><tr><th scope="col">Họ tên</th><th scope="col">Email</th><th scope="col">Vai trò</th><th scope="col">Trạng thái</th><th scope="col"><span class="visually-hidden">Thao tác</span></th></tr></thead>
           <tbody>
             <c:forEach var="u" items="${users}">
               <tr>
-                <td><strong>${u.fullName}</strong>
-                  <div class="small muted">${u.phone}</div></td>
-                <td class="small mono">${u.email}</td>
+                <td><strong><c:out value="${u.fullName}"/></strong>
+                  <div class="small muted"><c:out value="${u.phone}"/></div></td>
+                <td class="small mono"><c:out value="${u.email}"/></td>
                 <td>
-                  <form method="post" action="${ctx}/admin/users" style="display:flex; gap:4px;">
+                  <form method="post" action="${ctx}/admin/users" class="row-tight">
                     <input type="hidden" name="action" value="changeRole">
                     <input type="hidden" name="userId" value="${u.userId}">
-                    <select name="roleId" onchange="this.form.submit()" style="font-size:12px; padding:3px 6px;">
+                    <select name="roleId" data-autosubmit class="select-sm">
                       <c:forEach var="r" items="${roles}">
                         <option value="${r.roleId}" ${u.roleId eq r.roleId ? 'selected' : ''}>${ff:roleName(r.name)}</option>
                       </c:forEach>
@@ -60,7 +54,7 @@
                   </span>
                 </td>
                 <td class="center">
-                  <div class="actions" style="justify-content:center;">
+                  <div class="actions center">
                     <form method="post" action="${ctx}/admin/users" class="inline-form">
                       <input type="hidden" name="action" value="${u.active ? 'lock' : 'unlock'}">
                       <input type="hidden" name="userId" value="${u.userId}">
@@ -69,7 +63,9 @@
                       </button>
                     </form>
                     <form method="post" action="${ctx}/admin/users" class="inline-form"
-                          onsubmit="return confirm('Đặt lại mật khẩu cho ${u.fullName}?');">
+                          <%-- Câu hỏi không nhắc tên người dùng: tên đã hiện ngay trên cùng dòng
+                               của bảng, và ghép tên vào đây thì lại phải lo chuyện thoát ký tự. --%>
+                          data-confirm="Đặt lại mật khẩu của tài khoản này về 123456?">
                       <input type="hidden" name="action" value="resetPassword">
                       <input type="hidden" name="userId" value="${u.userId}">
                       <input type="hidden" name="newPassword" value="123456">
@@ -120,8 +116,4 @@
       </form>
     </div>
   </div>
-</main>
-
-<jsp:include page="/WEB-INF/views/layout/footer.jsp"/>
-</body>
-</html>
+<%@ include file="/WEB-INF/views/layout/page-end.jspf" %>

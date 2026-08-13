@@ -25,6 +25,15 @@ public final class BusinessRule {
     /** NFR-03: release phải xảy ra trong vòng 60 giây kể từ kitchen_release_at. */
     public static final int RELEASE_ACCURACY_SECONDS = 60;
 
+    /**
+     * Giờ mở cửa và đóng cửa (theo giờ trong ngày, 0-23).
+     * <p>
+     * Không có ràng buộc này thì khách hẹn giờ lấy hàng lúc 3 giờ sáng vẫn đặt được, và bộ
+     * hẹn giờ vẫn đẩy đơn xuống bếp lúc 2 giờ 40 khi cửa hàng không có ai.
+     */
+    public static final int STORE_OPEN_HOUR = 7;
+    public static final int STORE_CLOSE_HOUR = 21;
+
     private BusinessRule() {
     }
 }

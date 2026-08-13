@@ -45,14 +45,25 @@ public class PaymentCallbackServlet extends BaseServlet {
         int orderId = WebUtil.getInt(req, "orderId", 0);
 
         try {
-            boolean paid = paymentService.handleCallback(callback);
+            PaymentService.CallbackResult result = paymentService.handleCallback(callback);
             if (orderId <= 0) {
                 orderId = paymentService.orderIdOfPayment(callback.getPaymentId());
             }
-            if (paid) {
-                WebUtil.flashSuccess(req, "Thanh toán thành công. Đơn hàng đã được xác nhận.");
-            } else if (!callback.isSuccess()) {
-                WebUtil.flashError(req, "Thanh toán không thành công. Bạn có thể thử lại.");
+            switch (result) {
+                case PAID:
+                    WebUtil.flashSuccess(req, "Thanh toán thành công. Đơn hàng đã được xác nhận.");
+                    break;
+                case FAILED:
+                    WebUtil.flashError(req, "Thanh toán không thành công. Bạn có thể thử lại.");
+                    break;
+                case REFUNDED_ORDER_GONE:
+                    WebUtil.flashError(req, "Đơn hàng đã hết hiệu lực trước khi thanh toán hoàn tất. "
+                            + "Khoản tiền vừa thu đã được hoàn lại, bạn vui lòng đặt đơn mới.");
+                    break;
+                case DUPLICATE:
+                default:
+                    // Cổng gửi lại kết quả đã xử lý — trang theo dõi đơn đã hiện đúng trạng thái
+                    break;
             }
         } catch (AppException e) {
             WebUtil.flashError(req, e.getMessage());

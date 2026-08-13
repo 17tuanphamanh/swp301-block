@@ -1,14 +1,9 @@
 <c:set var="pageTitle" value="Đơn hàng #${order.orderId}" /><c:set var="nav" value="orders" />
-<!DOCTYPE html>
-<html lang="vi">
-<head><jsp:include page="/WEB-INF/views/layout/head.jsp"/></head>
-<body>
-<jsp:include page="/WEB-INF/views/layout/header.jsp"/>
-
-<main class="container medium">
+<c:set var="mainClass" value="container medium" />
+<%@ include file="/WEB-INF/views/layout/page-start.jspf" %>
   <p class="small mb"><a href="${ctx}/order/history">← Tất cả đơn của tôi</a></p>
 
-  <jsp:include page="/WEB-INF/views/layout/flash.jsp"/>
+  <%@ include file="/WEB-INF/views/layout/flash.jspf" %>
 
   <div class="card">
     <div class="row-between mb">
@@ -16,19 +11,27 @@
         <h1>Đơn hàng #${order.orderId}</h1>
         <p class="muted small">Đặt lúc ${ff:dateTime(order.createdAt)}</p>
       </div>
-      <span class="${ff:orderStatusClass(order.orderStatus)}">${ff:orderStatus(order.orderStatus)}</span>
+      <span id="order-status-badge" class="${ff:orderStatusClass(order.orderStatus)}">
+        ${ff:orderStatus(order.orderStatus)}
+      </span>
     </div>
 
     <%-- Tiến trình đơn. Bước hiện tại tô đậm để khách biết đang ở đâu. --%>
     <c:if test="${order.orderStatus ne 'CANCELLED' and order.orderStatus ne 'EXPIRED'}">
-      <div class="steps">
+      <%-- Danh sách có thứ tự chứ không phải các ô rời: tiến trình đơn vốn là một chuỗi
+           các bước nối tiếp, và trình đọc màn hình cần biết đang ở bước mấy trên mấy. --%>
+      <ol class="steps" aria-label="Tiến trình đơn hàng">
         <c:set var="s" value="${order.orderStatus}" />
-        <div class="step ${s ne 'PENDING_PAYMENT' ? 'done' : 'current'}">Thanh toán</div>
-        <div class="step ${s eq 'CONFIRMED' ? 'current' : (s eq 'PREPARING' or s eq 'READY' or s eq 'COMPLETED' ? 'done' : '')}">Đã xác nhận</div>
-        <div class="step ${s eq 'PREPARING' ? 'current' : (s eq 'READY' or s eq 'COMPLETED' ? 'done' : '')}">Đang chế biến</div>
-        <div class="step ${s eq 'READY' ? 'current' : (s eq 'COMPLETED' ? 'done' : '')}">Sẵn sàng</div>
-        <div class="step ${s eq 'COMPLETED' ? 'done' : ''}">Đã nhận</div>
-      </div>
+        <li class="step ${s ne 'PENDING_PAYMENT' ? 'done' : 'current'}"
+            ${s eq 'PENDING_PAYMENT' ? 'aria-current="step"' : ''}>Thanh toán</li>
+        <li class="step ${s eq 'CONFIRMED' ? 'current' : (s eq 'PREPARING' or s eq 'READY' or s eq 'COMPLETED' ? 'done' : '')}"
+            ${s eq 'CONFIRMED' ? 'aria-current="step"' : ''}>Đã xác nhận</li>
+        <li class="step ${s eq 'PREPARING' ? 'current' : (s eq 'READY' or s eq 'COMPLETED' ? 'done' : '')}"
+            ${s eq 'PREPARING' ? 'aria-current="step"' : ''}>Đang chế biến</li>
+        <li class="step ${s eq 'READY' ? 'current' : (s eq 'COMPLETED' ? 'done' : '')}"
+            ${s eq 'READY' ? 'aria-current="step"' : ''}>Sẵn sàng</li>
+        <li class="step ${s eq 'COMPLETED' ? 'done' : ''}">Đã nhận</li>
+      </ol>
     </c:if>
 
     <c:if test="${order.overdue}">
@@ -89,7 +92,7 @@
       <div>
         <c:if test="${not empty order.pickupCode}">
           <h3>Mã nhận hàng</h3>
-          <div class="pickup-code">${order.pickupCode}</div>
+          <div class="pickup-code"><c:out value="${order.pickupCode}"/></div>
           <c:if test="${not empty qrDataUri}">
             <div class="qr-box"><img src="${qrDataUri}" alt="Mã QR nhận hàng" width="160" height="160"></div>
           </c:if>
@@ -102,11 +105,11 @@
   <div class="card pad0 table-wrap">
     <div class="card-head"><h2>Món đã đặt</h2></div>
     <table>
-      <thead><tr><th>Món</th><th class="center">SL</th><th class="num">Đơn giá</th><th class="num">Thành tiền</th><th class="center">Bếp</th></tr></thead>
+      <thead><tr><th scope="col">Món</th><th scope="col" class="center">SL</th><th scope="col" class="num">Đơn giá</th><th scope="col" class="num">Thành tiền</th><th scope="col" class="center">Bếp</th></tr></thead>
       <tbody>
         <c:forEach var="item" items="${order.items}">
           <tr>
-            <td>${item.productNameSnapshot}</td>
+            <td><c:out value="${item.productNameSnapshot}"/></td>
             <td class="center">${item.quantity}</td>
             <td class="num">${ff:money(item.unitPrice)}</td>
             <td class="num">${ff:money(item.lineTotal)}</td>
@@ -134,34 +137,36 @@
     <div class="card">
       <h3>Huỷ đơn</h3>
       <p class="small muted mb">
-        Bếp chưa bắt đầu chuẩn bị nên bạn vẫn huỷ được. Tiền đã thanh toán sẽ được hoàn lại đầy đủ.
-        Sau ${ff:dateTime(order.kitchenReleaseAt)} thì không huỷ được nữa.
+        <c:choose>
+          <c:when test="${order.orderStatus eq 'PENDING_PAYMENT'}">
+            Đơn chưa thanh toán nên huỷ được ngay, bạn không bị trừ đồng nào. Huỷ xong là đặt
+            đơn mới được — mỗi lúc chỉ giữ một đơn chờ thanh toán.
+          </c:when>
+          <c:otherwise>
+            Bếp chưa nhận làm món nào của đơn này nên bạn vẫn huỷ được, tiền sẽ hoàn lại đầy đủ.
+            Khi có đầu bếp bắt đầu chế biến thì không huỷ ở đây được nữa — lúc đó vui lòng liên hệ
+            nhân viên tại quầy.
+          </c:otherwise>
+        </c:choose>
       </p>
       <form method="post" action="${ctx}/order/track"
-            onsubmit="return confirm('Huỷ đơn hàng này?');">
+            data-confirm="Huỷ đơn hàng này?">
         <input type="hidden" name="orderId" value="${order.orderId}">
         <button type="submit" class="btn btn-danger">Huỷ đơn hàng</button>
       </form>
     </div>
   </c:if>
-</main>
 
-<%-- Tự cập nhật trạng thái để khách không phải bấm tải lại khi đang chờ món. --%>
-<c:if test="${order.orderStatus eq 'CONFIRMED' or order.orderStatus eq 'PREPARING'}">
-  <script>
-    var orderId = ${order.orderId};
-    var current = '${order.orderStatus}';
-    setInterval(function () {
-      fetch('${ctx}/api/order/status?orderId=' + orderId)
-        .then(function (r) { return r.ok ? r.json() : null; })
-        .then(function (data) {
-          if (data && data.status !== current) { location.reload(); }
-        })
-        .catch(function () { /* mất mạng tạm thời thì thử lại ở lần sau */ });
-    }, 10000);
-  </script>
-</c:if>
-
-<jsp:include page="/WEB-INF/views/layout/footer.jsp"/>
-</body>
-</html>
+  <%-- Dấu hiệu để app.js tự cập nhật trạng thái, khách không phải bấm tải lại khi đang chờ món. --%>
+  <c:if test="${order.orderStatus eq 'CONFIRMED' or order.orderStatus eq 'PREPARING'}">
+    <noscript>
+      <div class="alert alert-info">
+        Trình duyệt đang tắt JavaScript nên trạng thái đơn không tự cập nhật.
+        Bấm tải lại trang để xem đơn đã tới bước nào.
+      </div>
+    </noscript>
+    <div id="order-watch" hidden
+         data-endpoint="${ctx}/api/order/status?orderId=${order.orderId}"
+         data-status="${order.orderStatus}"></div>
+  </c:if>
+<%@ include file="/WEB-INF/views/layout/page-end.jspf" %>

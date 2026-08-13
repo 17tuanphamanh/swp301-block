@@ -40,8 +40,18 @@ public class CartService {
         return Tx.read(con -> cartDAO.countItems(con, userId));
     }
 
+    /**
+     * Số lượng tối đa một dòng trong giỏ.
+     * <p>
+     * Ô nhập trên giao diện đã giới hạn, nhưng đó chỉ là gợi ý cho người dùng — gửi thẳng
+     * một con số khổng lồ lên vẫn được nhận. Chặn ở đây để thành tiền không vượt quá sức
+     * chứa của cột tiền trong cơ sở dữ liệu và làm hỏng cả lượt đặt hàng.
+     */
+    public static final int MAX_QUANTITY_PER_LINE = 50;
+
     public void addProduct(int userId, int productId, int quantity) {
         ValidationUtil.requirePositive(quantity, "Số lượng");
+        requireSaneQuantity(quantity);
         Tx.writeVoid(con -> {
             Product p = productDAO.findForCheckout(con, productId);
             if (p == null) {
@@ -56,8 +66,16 @@ public class CartService {
         });
     }
 
+    private void requireSaneQuantity(int quantity) {
+        if (quantity > MAX_QUANTITY_PER_LINE) {
+            throw new BusinessException("Mỗi món chỉ đặt được tối đa "
+                    + MAX_QUANTITY_PER_LINE + " phần. Cần nhiều hơn, vui lòng liên hệ cửa hàng.");
+        }
+    }
+
     /** Đặt lại số lượng; về 0 thì bỏ món khỏi giỏ. */
     public void updateQuantity(int userId, int cartItemId, int quantity) {
+        requireSaneQuantity(quantity);
         Tx.writeVoid(con -> {
             int cartId = cartDAO.getOrCreateCartId(con, userId, DateTimeUtil.now());
             if (quantity <= 0) {

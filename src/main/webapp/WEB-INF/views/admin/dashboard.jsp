@@ -1,24 +1,18 @@
 <c:set var="pageTitle" value="Tổng quan" /><c:set var="nav" value="dashboard" />
-<!DOCTYPE html>
-<html lang="vi">
-<head><jsp:include page="/WEB-INF/views/layout/head.jsp"/></head>
-<body>
-<jsp:include page="/WEB-INF/views/layout/header.jsp"/>
-
-<main class="container">
+<%@ include file="/WEB-INF/views/layout/page-start.jspf" %>
   <div class="page-head"><h1>Tổng quan</h1></div>
 
-  <jsp:include page="/WEB-INF/views/layout/flash.jsp"/>
+  <%@ include file="/WEB-INF/views/layout/flash.jspf" %>
 
   <div class="card">
     <form method="get" action="${ctx}/admin/dashboard" class="form-row">
       <div class="field">
         <label for="from">Từ</label>
-        <input type="datetime-local" id="from" name="from" value="${from}">
+        <input type="datetime-local" id="from" name="from" value="<c:out value="${from}"/>">
       </div>
       <div class="field">
         <label for="to">Đến</label>
-        <input type="datetime-local" id="to" name="to" value="${to}">
+        <input type="datetime-local" id="to" name="to" value="<c:out value="${to}"/>">
       </div>
       <button type="submit" class="btn btn-primary">Xem</button>
     </form>
@@ -28,7 +22,7 @@
     <div class="kpi">
       <div class="label">Doanh thu thuần</div>
       <div class="value">${ff:money(kpi.netRevenue)}</div>
-      <div class="sub">Đã trừ ${ff:money(kpi.refundedAmount)} hoàn tiền</div>
+      <div class="sub">Thu ${ff:money(kpi.grossRevenue)} · hoàn ${ff:money(kpi.refundedAmount)}</div>
     </div>
     <div class="kpi">
       <div class="label">Số đơn</div>
@@ -76,18 +70,18 @@
     <div class="card pad0 table-wrap">
       <div class="card-head"><h2>Món bán chạy</h2></div>
       <table>
-        <thead><tr><th>Món</th><th>Nhóm</th><th class="num">Đã bán</th><th class="num">Doanh thu</th></tr></thead>
+        <thead><tr><th scope="col">Món</th><th scope="col">Nhóm</th><th scope="col" class="num">Đã bán</th><th scope="col" class="num">Doanh thu</th></tr></thead>
         <tbody>
           <c:forEach var="row" items="${bestSellers}">
             <tr>
-              <td>${row.label}</td>
-              <td class="small muted">${row.subLabel}</td>
+              <td><c:out value="${row.label}"/></td>
+              <td class="small muted"><c:out value="${row.subLabel}"/></td>
               <td class="num"><strong>${row.quantity}</strong></td>
               <td class="num">${ff:money(row.amount)}</td>
             </tr>
           </c:forEach>
           <c:if test="${empty bestSellers}">
-            <tr><td colspan="4" class="center muted" style="padding:26px;">Chưa có đơn hoàn tất trong kỳ.</td></tr>
+            <tr><td colspan="4" class="center muted cell-empty">Chưa có đơn hoàn tất trong kỳ.</td></tr>
           </c:if>
         </tbody>
       </table>
@@ -96,18 +90,18 @@
     <div class="card pad0 table-wrap">
       <div class="card-head"><h2>Thanh toán</h2></div>
       <table>
-        <thead><tr><th>Phương thức</th><th>Trạng thái</th><th class="num">Số lượt</th><th class="num">Số tiền</th></tr></thead>
+        <thead><tr><th scope="col">Phương thức</th><th scope="col">Trạng thái</th><th scope="col" class="num">Số lượt</th><th scope="col" class="num">Số tiền</th></tr></thead>
         <tbody>
           <c:forEach var="row" items="${paymentSummary}">
             <tr>
-              <td>${row.label}</td>
+              <td><c:out value="${row.label}"/></td>
               <td><span class="${ff:paymentStatusClass(row.subLabel)}">${ff:paymentStatus(row.subLabel)}</span></td>
               <td class="num">${row.quantity}</td>
               <td class="num">${ff:money(row.amount)}</td>
             </tr>
           </c:forEach>
           <c:if test="${empty paymentSummary}">
-            <tr><td colspan="4" class="center muted" style="padding:26px;">Chưa có giao dịch trong kỳ.</td></tr>
+            <tr><td colspan="4" class="center muted cell-empty">Chưa có giao dịch trong kỳ.</td></tr>
           </c:if>
         </tbody>
       </table>
@@ -121,12 +115,17 @@
       <c:forEach var="row" items="${revenueByDay}">
         <c:if test="${row.amount > maxRevenue}"><c:set var="maxRevenue" value="${row.amount}" /></c:if>
       </c:forEach>
-      <div style="display:flex; align-items:flex-end; gap:6px; height:150px; padding-top:10px;">
+      <%-- role="img" kèm nhãn cho từng cột: không có nó thì trình đọc màn hình chỉ gặp một
+           chuỗi ô trống, còn thuộc tính title thì chỉ chuột mới thấy. --%>
+      <div class="chart" role="img" aria-label="Biểu đồ doanh thu theo ngày, ${fn:length(revenueByDay)} ngày">
         <c:forEach var="row" items="${revenueByDay}">
-          <div style="flex:1; text-align:center;" title="${row.label}: ${ff:money(row.amount)}">
-            <div style="background:var(--brand); border-radius:4px 4px 0 0;
-                        height:${maxRevenue > 0 ? (row.amount * 130 / maxRevenue) : 0}px;"></div>
-            <div class="small muted" style="font-size:10px; margin-top:4px;">
+          <div class="chart-col"
+               title="<c:out value="${row.label}"/>: ${ff:money(row.amount)}"
+               aria-label="<c:out value="${row.label}"/>: ${ff:money(row.amount)}">
+            <%-- Chỉ chiều cao còn nằm trong style: đó là số liệu, không phải kiểu hiển thị. --%>
+            <div class="chart-bar"
+                 style="height:${maxRevenue > 0 ? (row.amount * 130 / maxRevenue) : 0}px;"></div>
+            <div class="small muted chart-label">
               ${fn:substring(row.label, 5, 10)}
             </div>
           </div>
@@ -134,8 +133,4 @@
       </div>
     </div>
   </c:if>
-</main>
-
-<jsp:include page="/WEB-INF/views/layout/footer.jsp"/>
-</body>
-</html>
+<%@ include file="/WEB-INF/views/layout/page-end.jspf" %>

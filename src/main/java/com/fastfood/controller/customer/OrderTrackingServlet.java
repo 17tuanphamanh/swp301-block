@@ -45,13 +45,19 @@ public class OrderTrackingServlet extends BaseServlet {
         }
     }
 
-    /** Khách tự huỷ đơn khi bếp chưa bắt đầu chuẩn bị. */
+    /** Khách tự huỷ đơn khi chưa thanh toán, hoặc khi bếp chưa bắt đầu chuẩn bị. */
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         User user = requireUser(req);
         int orderId = WebUtil.getInt(req, "orderId", 0);
-        handle(req, resp, () -> orderService.cancelByCustomer(orderId, user.getUserId()),
-                "Đã huỷ đơn hàng. Tiền sẽ được hoàn lại nếu bạn đã thanh toán.",
-                "/order/track?orderId=" + orderId);
+        // Thông báo phải nói đúng chuyện vừa xảy ra: đơn chưa trả tiền thì không có gì để hoàn,
+        // hứa hoàn tiền chỉ làm khách ngồi đợi một khoản không bao giờ về. Vì vậy đặt thông báo
+        // bên trong thao tác và truyền null ở tham số sau.
+        handle(req, resp, () -> {
+            boolean refunded = orderService.cancelByCustomer(orderId, user.getUserId());
+            WebUtil.flashSuccess(req, refunded
+                    ? "Đã huỷ đơn hàng. Toàn bộ số tiền sẽ được hoàn về phương thức thanh toán của bạn."
+                    : "Đã huỷ đơn hàng. Đơn chưa thanh toán nên bạn không bị trừ tiền.");
+        }, null, "/order/track?orderId=" + orderId);
     }
 }

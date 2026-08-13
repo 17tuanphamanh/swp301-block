@@ -113,13 +113,24 @@ public class PosServlet extends BaseServlet {
                     redirect(req, resp, "/staff/pos");
                     return;
                 }
-                PaymentMethod method = "CASH".equals(WebUtil.getString(req, "method"))
-                        ? PaymentMethod.CASH : PaymentMethod.ONLINE_GATEWAY;
+                // Không suy diễn hình thức thanh toán từ "khác CASH thì là quẹt thẻ": tham số
+                // gõ sai sẽ lặng lẽ ghi nhận sai loại tiền và làm sai luôn báo cáo đối soát.
+                String raw = WebUtil.getString(req, "method");
+                PaymentMethod method;
+                try {
+                    method = PaymentMethod.valueOf(raw == null ? "" : raw.trim().toUpperCase());
+                } catch (IllegalArgumentException e) {
+                    WebUtil.flashError(req, "Hình thức thanh toán không hợp lệ.");
+                    redirect(req, resp, "/staff/pos");
+                    return;
+                }
+                String reference = WebUtil.getString(req, "reference");
+
                 List<PosLine> lines = new ArrayList<>();
                 cart.forEach((productId, quantity) -> lines.add(new PosLine(productId, quantity)));
 
                 try {
-                    Order order = orderService.createPosOrder(cashier.getUserId(), lines, method);
+                    Order order = orderService.createPosOrder(cashier.getUserId(), lines, method, reference);
                     cart.clear();
                     WebUtil.flashSuccess(req, "Đã lập đơn #" + order.getOrderId()
                             + " và chuyển xuống bếp.");

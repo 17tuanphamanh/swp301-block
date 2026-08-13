@@ -24,20 +24,34 @@ public class ReportDAO {
             throws SQLException {
         DashboardKpi kpi = new DashboardKpi();
 
-        // Doanh thu thuần: tiền đã thu trừ tiền đã hoàn, tính theo thời điểm thanh toán
+        // Doanh thu thuần = tiền đã thu trong kỳ trừ tiền đã hoàn trong kỳ.
+        //
+        // Hai vế đếm theo hai mốc khác nhau, và đó là điểm dễ sai nhất của cả báo cáo.
+        // Bảng Payment chỉ có một cột trạng thái: hoàn tiền ghi đè PAID thành REFUNDED.
+        // Vì vậy không được lọc vế thu theo payment_status — một khoản đã thu rồi hoàn lại
+        // sẽ biến mất khỏi vế thu nhưng vẫn nằm ở vế hoàn, và doanh thu bị trừ hai lần
+        // (một đơn 100.000đ thu rồi hoàn cho ra âm 100.000đ thay vì bằng không).
+        //
+        // Mốc đúng: đã thu là paid_at, đã hoàn là refunded_at. Khoản thu tháng này mà hoàn
+        // tháng sau thì tháng này vẫn ghi nhận đủ doanh thu, tháng sau mới bị trừ — đúng
+        // như cách sổ sách ghi nhận, và cũng là cách duy nhất để tổng các kỳ khớp nhau.
         String revenueSql =
-                "SELECT ISNULL(SUM(CASE WHEN payment_status = 'PAID'     THEN amount ELSE 0 END), 0) AS paid, " +
-                "       ISNULL(SUM(CASE WHEN payment_status = 'REFUNDED' THEN amount ELSE 0 END), 0) AS refunded " +
-                "FROM dbo.Payment WHERE paid_at IS NOT NULL AND paid_at BETWEEN ? AND ?";
+                "SELECT ISNULL(SUM(CASE WHEN p.paid_at     BETWEEN ? AND ? THEN p.amount ELSE 0 END), 0) AS gross, " +
+                "       ISNULL(SUM(CASE WHEN p.refunded_at BETWEEN ? AND ? THEN p.amount ELSE 0 END), 0) AS refunded " +
+                "FROM dbo.Payment p " +
+                "WHERE (p.paid_at BETWEEN ? AND ?) OR (p.refunded_at BETWEEN ? AND ?)";
         try (PreparedStatement ps = con.prepareStatement(revenueSql)) {
-            JdbcSupport.setDateTime(ps, 1, from);
-            JdbcSupport.setDateTime(ps, 2, to);
+            for (int i = 0; i < 4; i++) {
+                JdbcSupport.setDateTime(ps, i * 2 + 1, from);
+                JdbcSupport.setDateTime(ps, i * 2 + 2, to);
+            }
             try (ResultSet rs = ps.executeQuery()) {
                 if (rs.next()) {
-                    BigDecimal paid = rs.getBigDecimal("paid");
+                    BigDecimal gross = rs.getBigDecimal("gross");
                     BigDecimal refunded = rs.getBigDecimal("refunded");
+                    kpi.setGrossRevenue(gross);
                     kpi.setRefundedAmount(refunded);
-                    kpi.setNetRevenue(paid.subtract(refunded));
+                    kpi.setNetRevenue(gross.subtract(refunded));
                 }
             }
         }
@@ -159,18 +173,29 @@ public class ReportDAO {
         return list;
     }
 
-    /** Doanh thu theo ngày, dùng vẽ biểu đồ cột trên bảng điều khiển. */
+    /**
+     * Doanh thu theo ngày, dùng vẽ biểu đồ cột trên bảng điều khiển.
+     * <p>
+     * Cùng cách tính với {@link #loadKpi}: khoản thu rơi vào ngày <code>paid_at</code>,
+     * khoản hoàn rơi vào ngày <code>refunded_at</code> dưới dạng số âm. Gộp hai nguồn bằng
+     * UNION ALL rồi mới cộng, vì một dòng Payment có thể thuộc về hai ngày khác nhau —
+     * ngày thu tiền và ngày trả lại tiền.
+     */
     public List<ReportRow> revenueByDay(Connection con, LocalDateTime from, LocalDateTime to)
             throws SQLException {
-        String sql = "SELECT CAST(paid_at AS DATE) AS d, " +
-                     "       SUM(CASE WHEN payment_status = 'PAID'     THEN amount ELSE 0 END) " +
-                     "     - SUM(CASE WHEN payment_status = 'REFUNDED' THEN amount ELSE 0 END) AS net " +
-                     "FROM dbo.Payment WHERE paid_at BETWEEN ? AND ? " +
-                     "GROUP BY CAST(paid_at AS DATE) ORDER BY CAST(paid_at AS DATE)";
+        String sql = "SELECT x.d, SUM(x.net) AS net FROM ( " +
+                     "    SELECT CAST(p.paid_at     AS DATE) AS d,  p.amount AS net " +
+                     "      FROM dbo.Payment p WHERE p.paid_at     BETWEEN ? AND ? " +
+                     "    UNION ALL " +
+                     "    SELECT CAST(p.refunded_at AS DATE) AS d, -p.amount AS net " +
+                     "      FROM dbo.Payment p WHERE p.refunded_at BETWEEN ? AND ? " +
+                     ") x GROUP BY x.d ORDER BY x.d";
         List<ReportRow> list = new ArrayList<>();
         try (PreparedStatement ps = con.prepareStatement(sql)) {
             JdbcSupport.setDateTime(ps, 1, from);
             JdbcSupport.setDateTime(ps, 2, to);
+            JdbcSupport.setDateTime(ps, 3, from);
+            JdbcSupport.setDateTime(ps, 4, to);
             try (ResultSet rs = ps.executeQuery()) {
                 while (rs.next()) {
                     list.add(new ReportRow(rs.getDate("d").toString(), 0, rs.getBigDecimal("net")));

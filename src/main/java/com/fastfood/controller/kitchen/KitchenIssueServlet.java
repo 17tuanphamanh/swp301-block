@@ -27,6 +27,13 @@ public class KitchenIssueServlet extends BaseServlet {
         req.setAttribute("openIssues", kitchenService.openIssues());
         req.setAttribute("recentIssues", kitchenService.recentIssues(30));
         req.setAttribute("orderItemId", WebUtil.getInt(req, "orderItemId", 0));
+
+        // ?edit= đổi biểu mẫu bên phải từ "báo mới" sang "sửa mô tả", giống cách hai màn hình
+        // quản trị món ăn và nhóm món đang làm — cùng một trang, không mở thêm cửa sổ.
+        int editId = WebUtil.getInt(req, "edit", 0);
+        if (editId > 0) {
+            req.setAttribute("editing", kitchenService.findIssue(editId));
+        }
         forward(req, resp, "kitchen/issue.jsp");
     }
 
@@ -35,11 +42,24 @@ public class KitchenIssueServlet extends BaseServlet {
         User user = requireUser(req);
         String action = WebUtil.getString(req, "action");
 
-        if ("resolve".equals(action)) {
-            int issueId = WebUtil.getInt(req, "issueId", 0);
-            handle(req, resp, () -> kitchenService.resolveIssue(issueId, user.getUserId()),
-                    "Đã đánh dấu sự cố được xử lý.", "/kitchen/issue");
-            return;
+        int issueId = WebUtil.getInt(req, "issueId", 0);
+
+        switch (action == null ? "" : action) {
+            case "resolve":
+                handle(req, resp, () -> kitchenService.resolveIssue(issueId, user.getUserId()),
+                        "Đã đánh dấu sự cố được xử lý.", "/kitchen/issue");
+                return;
+            case "update":
+                handle(req, resp, () -> kitchenService.updateIssue(issueId, user.getUserId(),
+                                WebUtil.getString(req, "description")),
+                        "Đã cập nhật mô tả sự cố.", "/kitchen/issue");
+                return;
+            case "cancel":
+                handle(req, resp, () -> kitchenService.cancelIssue(issueId, user.getUserId()),
+                        "Đã thu hồi sự cố báo nhầm.", "/kitchen/issue");
+                return;
+            default:
+                break;
         }
 
         int orderItemId = WebUtil.getInt(req, "orderItemId", 0);

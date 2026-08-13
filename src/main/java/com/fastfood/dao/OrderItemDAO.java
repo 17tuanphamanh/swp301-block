@@ -18,7 +18,26 @@ public class OrderItemDAO {
 
     private static final String COLS =
             "oi.order_item_id, oi.order_id, oi.product_id, oi.product_name_snapshot, oi.unit_price, " +
-            "oi.quantity, oi.item_status, oi.assigned_to_user_id, oi.started_at, oi.ready_at ";
+            "oi.quantity, oi.item_status, oi.assigned_to_user_id, oi.started_at, oi.ready_at, " +
+            "oi.handed_over_at, oi.handed_over_by, oi.received_at, oi.received_by ";
+
+    /**
+     * Tên ba người liên quan tới một dòng món. Đi kèm {@link #NAME_JOINS} — dùng cái này thì
+     * phải dùng cái kia, nếu không {@link #map} sẽ đọc một cột không tồn tại.
+     */
+    private static final String NAME_COLS =
+            ", u.full_name AS assigned_to_name, hu.full_name AS handed_over_by_name, " +
+            "  ru.full_name AS received_by_name ";
+
+    private static final String NAME_JOINS =
+            "LEFT JOIN dbo.Users u  ON u.user_id  = oi.assigned_to_user_id " +
+            "LEFT JOIN dbo.Users hu ON hu.user_id = oi.handed_over_by " +
+            "LEFT JOIN dbo.Users ru ON ru.user_id = oi.received_by ";
+
+    /** Số sự cố còn mở của dòng món — hiện thành nhãn đỏ trên thẻ ở màn hình bếp. */
+    private static final String OPEN_ISSUE_COL =
+            ", (SELECT COUNT(*) FROM dbo.KitchenIssue ki " +
+            "   WHERE ki.order_item_id = oi.order_item_id AND ki.status = 'OPEN') AS open_issue_count ";
 
     public void insert(Connection con, OrderItem item) throws SQLException {
         String sql = "INSERT INTO dbo.OrderItem (order_id, product_id, product_name_snapshot, unit_price, " +
@@ -40,10 +59,8 @@ public class OrderItemDAO {
     }
 
     public List<OrderItem> findByOrder(Connection con, int orderId) throws SQLException {
-        String sql = "SELECT " + COLS + ", u.full_name AS assigned_to_name, " +
-                     "(SELECT COUNT(*) FROM dbo.KitchenIssue ki " +
-                     " WHERE ki.order_item_id = oi.order_item_id AND ki.status = 'OPEN') AS open_issue_count " +
-                     "FROM dbo.OrderItem oi LEFT JOIN dbo.Users u ON u.user_id = oi.assigned_to_user_id " +
+        String sql = "SELECT " + COLS + NAME_COLS + OPEN_ISSUE_COL +
+                     "FROM dbo.OrderItem oi " + NAME_JOINS +
                      "WHERE oi.order_id = ? ORDER BY oi.order_item_id";
         try (PreparedStatement ps = con.prepareStatement(sql)) {
             ps.setInt(1, orderId);
@@ -52,13 +69,9 @@ public class OrderItemDAO {
     }
 
     public OrderItem findById(Connection con, int orderItemId) throws SQLException {
-        String sql = "SELECT " + COLS + ", u.full_name AS assigned_to_name, " +
-                     "o.order_source, o.pickup_time, " +
-                     "(SELECT COUNT(*) FROM dbo.KitchenIssue ki " +
-                     " WHERE ki.order_item_id = oi.order_item_id AND ki.status = 'OPEN') AS open_issue_count " +
+        String sql = "SELECT " + COLS + NAME_COLS + ", o.order_source, o.pickup_time " + OPEN_ISSUE_COL +
                      "FROM dbo.OrderItem oi " +
-                     "JOIN dbo.Orders o ON o.order_id = oi.order_id " +
-                     "LEFT JOIN dbo.Users u ON u.user_id = oi.assigned_to_user_id " +
+                     "JOIN dbo.Orders o ON o.order_id = oi.order_id " + NAME_JOINS +
                      "WHERE oi.order_item_id = ?";
         try (PreparedStatement ps = con.prepareStatement(sql)) {
             ps.setInt(1, orderItemId);
@@ -74,10 +87,8 @@ public class OrderItemDAO {
      * xếp theo thứ tự vào trước làm trước.
      */
     public List<OrderItem> findWaitingQueue(Connection con) throws SQLException {
-        String sql = "SELECT " + COLS + ", NULL AS assigned_to_name, o.order_source, o.pickup_time, " +
-                     "(SELECT COUNT(*) FROM dbo.KitchenIssue ki " +
-                     " WHERE ki.order_item_id = oi.order_item_id AND ki.status = 'OPEN') AS open_issue_count " +
-                     "FROM dbo.OrderItem oi JOIN dbo.Orders o ON o.order_id = oi.order_id " +
+        String sql = "SELECT " + COLS + NAME_COLS + ", o.order_source, o.pickup_time " + OPEN_ISSUE_COL +
+                     "FROM dbo.OrderItem oi JOIN dbo.Orders o ON o.order_id = oi.order_id " + NAME_JOINS +
                      "WHERE oi.item_status = 'WAITING' AND o.released_to_kds_at IS NOT NULL " +
                      "  AND o.order_status IN ('CONFIRMED','PREPARING') " +
                      "ORDER BY CASE WHEN o.pickup_time IS NULL THEN o.released_to_kds_at ELSE o.pickup_time END, " +
@@ -87,14 +98,18 @@ public class OrderItemDAO {
         }
     }
 
-    /** Việc mà một đầu bếp đang làm dở. */
+    /**
+     * Việc mà một đầu bếp đang làm dở.
+     * <p>
+     * Điều kiện trạng thái đơn là bắt buộc chứ không thừa: thu ngân huỷ được cả đơn đang nấu
+     * (xem {@link OrderDAO#markCancelledByStaff}), nên thiếu nó thì món của đơn vừa bị huỷ
+     * vẫn nằm trong danh sách việc và đầu bếp tiếp tục nấu một đơn không còn tồn tại.
+     */
     public List<OrderItem> findMyTasks(Connection con, int userId) throws SQLException {
-        String sql = "SELECT " + COLS + ", u.full_name AS assigned_to_name, o.order_source, o.pickup_time, " +
-                     "(SELECT COUNT(*) FROM dbo.KitchenIssue ki " +
-                     " WHERE ki.order_item_id = oi.order_item_id AND ki.status = 'OPEN') AS open_issue_count " +
-                     "FROM dbo.OrderItem oi JOIN dbo.Orders o ON o.order_id = oi.order_id " +
-                     "LEFT JOIN dbo.Users u ON u.user_id = oi.assigned_to_user_id " +
+        String sql = "SELECT " + COLS + NAME_COLS + ", o.order_source, o.pickup_time " + OPEN_ISSUE_COL +
+                     "FROM dbo.OrderItem oi JOIN dbo.Orders o ON o.order_id = oi.order_id " + NAME_JOINS +
                      "WHERE oi.assigned_to_user_id = ? AND oi.item_status = 'PREPARING' " +
+                     "  AND o.order_status IN ('CONFIRMED','PREPARING') " +
                      "ORDER BY CASE WHEN o.pickup_time IS NULL THEN oi.started_at ELSE o.pickup_time END";
         try (PreparedStatement ps = con.prepareStatement(sql)) {
             ps.setInt(1, userId);
@@ -102,28 +117,84 @@ public class OrderItemDAO {
         }
     }
 
-    /** Món đã hoàn thành gần đây, dùng cho màn hình lịch sử của bếp. */
-    public List<OrderItem> findRecentReady(Connection con, int limit) throws SQLException {
-        String sql = "SELECT TOP (?) " + COLS + ", u.full_name AS assigned_to_name, " +
-                     "o.order_source, o.pickup_time, 0 AS open_issue_count " +
-                     "FROM dbo.OrderItem oi JOIN dbo.Orders o ON o.order_id = oi.order_id " +
-                     "LEFT JOIN dbo.Users u ON u.user_id = oi.assigned_to_user_id " +
-                     "WHERE oi.item_status = 'READY' ORDER BY oi.ready_at DESC";
+    /**
+     * Món đầu bếp đã làm xong nhưng chưa đưa ra quầy.
+     * <p>
+     * Không lọc theo trạng thái đơn như {@link #findMyTasks}: món đã nấu xong rồi thì dù đơn
+     * vừa bị huỷ, nó vẫn đang nằm trong bếp và vẫn phải được đưa ra ngoài — bỏ khỏi danh sách
+     * ở đây chỉ khiến món nằm lại mà không ai còn nhìn thấy.
+     */
+    public List<OrderItem> findAwaitingHandover(Connection con, int userId) throws SQLException {
+        String sql = "SELECT " + COLS + NAME_COLS + ", o.order_source, o.pickup_time " + OPEN_ISSUE_COL +
+                     "FROM dbo.OrderItem oi JOIN dbo.Orders o ON o.order_id = oi.order_id " + NAME_JOINS +
+                     "WHERE oi.assigned_to_user_id = ? AND oi.item_status = 'READY' " +
+                     "  AND oi.handed_over_at IS NULL " +
+                     "ORDER BY oi.ready_at, oi.order_item_id";
         try (PreparedStatement ps = con.prepareStatement(sql)) {
-            ps.setInt(1, limit);
+            ps.setInt(1, userId);
             return collect(ps, true);
+        }
+    }
+
+    /**
+     * Món bếp đã đưa ra quầy mà thu ngân chưa xác nhận cầm — hàng chờ của màn hình quầy.
+     * <p>
+     * Sắp theo lúc bàn giao chứ không theo giờ hẹn: món ra trước thì nguội trước.
+     */
+    public List<OrderItem> findAwaitingCounter(Connection con) throws SQLException {
+        String sql = "SELECT " + COLS + NAME_COLS + ", o.order_source, o.pickup_time " + OPEN_ISSUE_COL +
+                     "FROM dbo.OrderItem oi JOIN dbo.Orders o ON o.order_id = oi.order_id " + NAME_JOINS +
+                     "WHERE oi.handed_over_at IS NOT NULL AND oi.received_at IS NULL " +
+                     "ORDER BY oi.handed_over_at, oi.order_item_id";
+        try (PreparedStatement ps = con.prepareStatement(sql)) {
+            return collect(ps, true);
+        }
+    }
+
+    /** Một trang món đã hoàn thành, dùng cho màn hình lịch sử của bếp. */
+    public List<OrderItem> findReadyPage(Connection con, int offset, int limit) throws SQLException {
+        String sql = "SELECT " + COLS + NAME_COLS +
+                     ", o.order_source, o.pickup_time, 0 AS open_issue_count " +
+                     "FROM dbo.OrderItem oi JOIN dbo.Orders o ON o.order_id = oi.order_id " + NAME_JOINS +
+                     "WHERE oi.item_status = 'READY' " +
+                     "ORDER BY oi.ready_at DESC, oi.order_item_id DESC " +
+                     "OFFSET ? ROWS FETCH NEXT ? ROWS ONLY";
+        try (PreparedStatement ps = con.prepareStatement(sql)) {
+            ps.setInt(1, offset);
+            ps.setInt(2, limit);
+            return collect(ps, true);
+        }
+    }
+
+    public long countReady(Connection con) throws SQLException {
+        try (PreparedStatement ps = con.prepareStatement(
+                "SELECT COUNT(*) FROM dbo.OrderItem WHERE item_status = 'READY'");
+             ResultSet rs = ps.executeQuery()) {
+            return rs.next() ? rs.getLong(1) : 0L;
         }
     }
 
     /**
      * Đầu bếp nhận việc.
      * <p>
-     * Hai điều kiện cuối là chốt chặn: hai người cùng bấm nhận một món thì người thứ hai
-     * nhận về 0 dòng và được báo món đã có người làm, thay vì ghi đè lên phân công của người trước.
+     * Hai điều kiện về món là chốt chặn tranh chấp: hai người cùng bấm nhận một món thì người
+     * thứ hai nhận về 0 dòng và được báo món đã có người làm, thay vì ghi đè lên phân công của
+     * người trước.
+     * <p>
+     * Hai điều kiện về đơn là chốt chặn nghiệp vụ, và phải <b>trùng khít</b> với điều kiện của
+     * {@link #findWaitingQueue}. Trước đây chúng chỉ có ở truy vấn hàng chờ, nên việc giữ đơn
+     * đặt trước tới sát giờ mới đưa xuống bếp thực chất chỉ là ẩn thẻ trên màn hình: gửi thẳng
+     * một mã món vào là nấu được đơn còn chưa tới giờ. Đơn khi đó rơi vào trạng thái mâu thuẫn
+     * — đang chế biến nhưng {@code released_to_kds_at} vẫn trống — và khách mất luôn quyền tự
+     * huỷ đơn của chính mình, vì {@link #countInProgress} tính đó là "bếp đã bắt đầu làm".
      */
     public int claim(Connection con, int orderItemId, int userId, LocalDateTime now) throws SQLException {
-        String sql = "UPDATE dbo.OrderItem SET assigned_to_user_id = ?, item_status = 'PREPARING', started_at = ? " +
-                     "WHERE order_item_id = ? AND item_status = 'WAITING' AND assigned_to_user_id IS NULL";
+        String sql = "UPDATE oi SET assigned_to_user_id = ?, item_status = 'PREPARING', started_at = ? " +
+                     "FROM dbo.OrderItem oi JOIN dbo.Orders o ON o.order_id = oi.order_id " +
+                     "WHERE oi.order_item_id = ? AND oi.item_status = 'WAITING' " +
+                     "  AND oi.assigned_to_user_id IS NULL " +
+                     "  AND o.released_to_kds_at IS NOT NULL " +
+                     "  AND o.order_status IN ('CONFIRMED','PREPARING')";
         try (PreparedStatement ps = con.prepareStatement(sql)) {
             ps.setInt(1, userId);
             JdbcSupport.setDateTime(ps, 2, now);
@@ -144,10 +215,94 @@ public class OrderItemDAO {
         }
     }
 
+    /**
+     * Bếp đưa món ra quầy.
+     * <p>
+     * Ba điều kiện trong câu lệnh: món phải xong, phải chưa bàn giao lần nào, và phải đúng
+     * người đang làm nó. Điều kiện cuối không phải để phân quyền mà để đối chiếu được — người
+     * đưa món ra quầy phải là người biết món đó gồm những gì.
+     */
+    public int handOverToCounter(Connection con, int orderItemId, int userId, LocalDateTime now)
+            throws SQLException {
+        String sql = "UPDATE dbo.OrderItem SET handed_over_at = ?, handed_over_by = ? " +
+                     "WHERE order_item_id = ? AND item_status = 'READY' " +
+                     "  AND handed_over_at IS NULL AND assigned_to_user_id = ?";
+        try (PreparedStatement ps = con.prepareStatement(sql)) {
+            JdbcSupport.setDateTime(ps, 1, now);
+            ps.setInt(2, userId);
+            ps.setInt(3, orderItemId);
+            ps.setInt(4, userId);
+            return ps.executeUpdate();
+        }
+    }
+
+    /**
+     * Thu ngân xác nhận đã cầm món tại quầy.
+     * <p>
+     * Không ràng buộc "đúng thu ngân nào" như phía bếp: quầy có thể đổi ca giữa chừng, và
+     * người cầm món không nhất thiết là người sẽ giao cho khách.
+     */
+    public int receiveAtCounter(Connection con, int orderItemId, int cashierId, LocalDateTime now)
+            throws SQLException {
+        String sql = "UPDATE dbo.OrderItem SET received_at = ?, received_by = ? " +
+                     "WHERE order_item_id = ? AND handed_over_at IS NOT NULL AND received_at IS NULL";
+        try (PreparedStatement ps = con.prepareStatement(sql)) {
+            JdbcSupport.setDateTime(ps, 1, now);
+            ps.setInt(2, cashierId);
+            ps.setInt(3, orderItemId);
+            return ps.executeUpdate();
+        }
+    }
+
+    /**
+     * Số món của đơn chưa nằm trong tay quầy. Bằng 0 mới giao cho khách được.
+     * <p>
+     * Đây là điều mà trạng thái đơn không nói được: đơn ở trạng thái sẵn sàng chỉ nghĩa là bếp
+     * đã nấu xong, không có nghĩa món đã ra tới quầy.
+     */
+    public int countNotReceived(Connection con, int orderId) throws SQLException {
+        try (PreparedStatement ps = con.prepareStatement(
+                "SELECT COUNT(*) FROM dbo.OrderItem WHERE order_id = ? AND received_at IS NULL")) {
+            ps.setInt(1, orderId);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() ? rs.getInt(1) : 0;
+            }
+        }
+    }
+
+    /** Số món đang nằm chờ trên quầy — hiện thành số đếm trên thanh điều hướng của thu ngân. */
+    public int countAwaitingCounter(Connection con) throws SQLException {
+        try (PreparedStatement ps = con.prepareStatement(
+                "SELECT COUNT(*) FROM dbo.OrderItem " +
+                "WHERE handed_over_at IS NOT NULL AND received_at IS NULL");
+             ResultSet rs = ps.executeQuery()) {
+            return rs.next() ? rs.getInt(1) : 0;
+        }
+    }
+
     /** Số món của đơn chưa hoàn thành. Bằng 0 nghĩa là cả đơn đã sẵn sàng. */
     public int countUnready(Connection con, int orderId) throws SQLException {
         try (PreparedStatement ps = con.prepareStatement(
                 "SELECT COUNT(*) FROM dbo.OrderItem WHERE order_id = ? AND item_status <> 'READY'")) {
+            ps.setInt(1, orderId);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() ? rs.getInt(1) : 0;
+            }
+        }
+    }
+
+    /**
+     * Số món của đơn đã rời khỏi hàng chờ, tức là bếp đã động tay vào.
+     * <p>
+     * Dùng để quyết định khách còn tự huỷ được không. Mốc đúng là "bếp đã bắt đầu làm",
+     * không phải "đơn đã xuống bếp": hai thời điểm này cách nhau tới 20 phút, và trong
+     * khoảng đó chưa tốn một đồng nguyên liệu nào nên huỷ vẫn hợp lý.
+     * <p>
+     * Người gọi phải khoá dòng đơn trước khi gọi — xem {@link OrderDAO#lockForUpdate}.
+     */
+    public int countInProgress(Connection con, int orderId) throws SQLException {
+        try (PreparedStatement ps = con.prepareStatement(
+                "SELECT COUNT(*) FROM dbo.OrderItem WHERE order_id = ? AND item_status <> 'WAITING'")) {
             ps.setInt(1, orderId);
             try (ResultSet rs = ps.executeQuery()) {
                 return rs.next() ? rs.getInt(1) : 0;
@@ -187,7 +342,13 @@ public class OrderItemDAO {
         i.setAssignedToUserId(JdbcSupport.getInteger(rs, "assigned_to_user_id"));
         i.setStartedAt(JdbcSupport.getDateTime(rs, "started_at"));
         i.setReadyAt(JdbcSupport.getDateTime(rs, "ready_at"));
+        i.setHandedOverAt(JdbcSupport.getDateTime(rs, "handed_over_at"));
+        i.setHandedOverBy(JdbcSupport.getInteger(rs, "handed_over_by"));
+        i.setReceivedAt(JdbcSupport.getDateTime(rs, "received_at"));
+        i.setReceivedBy(JdbcSupport.getInteger(rs, "received_by"));
         i.setAssignedToName(rs.getNString("assigned_to_name"));
+        i.setHandedOverByName(rs.getNString("handed_over_by_name"));
+        i.setReceivedByName(rs.getNString("received_by_name"));
         i.setOpenIssueCount(rs.getInt("open_issue_count"));
         if (withOrderInfo) {
             i.setOrderSource(rs.getString("order_source"));

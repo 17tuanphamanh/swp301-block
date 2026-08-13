@@ -11,7 +11,7 @@ public class UserDAO {
 
     private static final String BASE =
             "SELECT u.user_id, u.full_name, u.email, u.phone, u.password_hash, u.role_id, " +
-            "       u.status, u.created_at, u.updated_at, r.name AS role_name " +
+            "       u.status, u.must_change_password, u.created_at, u.updated_at, r.name AS role_name " +
             "FROM dbo.Users u JOIN dbo.Role r ON r.role_id = u.role_id ";
 
     public User findByEmail(Connection con, String email) throws SQLException {
@@ -107,11 +107,20 @@ public class UserDAO {
         }
     }
 
-    public void updatePassword(Connection con, int userId, String passwordHash) throws SQLException {
+    /**
+     * Đổi mật khẩu và đặt luôn cờ "phải đổi ở lần đăng nhập sau".
+     * <p>
+     * Hai việc này đi cùng nhau vì chúng luôn ngược chiều nhau: người dùng tự đổi thì tắt cờ,
+     * quản trị viên đặt lại hộ thì bật cờ. Tách thành hai câu lệnh thì sẽ có lúc quên câu thứ
+     * hai, và tài khoản chạy tiếp bằng mật khẩu mà người khác biết.
+     */
+    public void updatePassword(Connection con, int userId, String passwordHash,
+                               boolean mustChange) throws SQLException {
         try (PreparedStatement ps = con.prepareStatement(
-                "UPDATE dbo.Users SET password_hash = ? WHERE user_id = ?")) {
+                "UPDATE dbo.Users SET password_hash = ?, must_change_password = ? WHERE user_id = ?")) {
             ps.setString(1, passwordHash);
-            ps.setInt(2, userId);
+            ps.setBoolean(2, mustChange);
+            ps.setInt(3, userId);
             ps.executeUpdate();
         }
     }
@@ -144,6 +153,7 @@ public class UserDAO {
         u.setPasswordHash(rs.getString("password_hash"));
         u.setRoleId(rs.getInt("role_id"));
         u.setStatus(rs.getString("status"));
+        u.setMustChangePassword(rs.getBoolean("must_change_password"));
         u.setCreatedAt(JdbcSupport.getDateTime(rs, "created_at"));
         u.setUpdatedAt(JdbcSupport.getDateTime(rs, "updated_at"));
         u.setRoleName(rs.getString("role_name"));

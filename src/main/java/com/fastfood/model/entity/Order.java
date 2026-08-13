@@ -1,8 +1,10 @@
 package com.fastfood.model.entity;
 
 import com.fastfood.common.constant.KdsReleaseState;
+import com.fastfood.common.constant.OrderItemStatus;
 import com.fastfood.common.constant.OrderSource;
 import com.fastfood.common.constant.OrderStatus;
+import com.fastfood.common.constant.PaymentStatus;
 import com.fastfood.config.AppConfig;
 import com.fastfood.common.util.DateTimeUtil;
 
@@ -159,17 +161,63 @@ public class Order {
     }
 
     /**
-     * Khách còn huỷ được không: chỉ đơn đặt trước đã xác nhận và chưa tới giờ vào bếp.
-     * Khi bếp đã bắt đầu thì nguyên liệu đã dùng, không cho huỷ nữa.
+     * Khách còn tự huỷ được không.
+     * <p>
+     * Đơn <b>chờ thanh toán</b> thì luôn huỷ được: chưa thu đồng nào và bếp chưa thấy đơn.
+     * Bỏ sót trường hợp này thì khách đổi ý sẽ kẹt — không trả tiền, không huỷ, mà cũng không
+     * đặt đơn khác được vì mỗi lúc chỉ cho một đơn chờ thanh toán.
+     * <p>
+     * Đơn <b>đã xác nhận</b> thì mốc chặn là bếp đã bắt đầu làm hay chưa, không phải đơn đã
+     * xuống bếp hay chưa — đơn xuống bếp trước giờ hẹn 20 phút và suốt khoảng đó có thể chưa
+     * ai nhận việc. Điều kiện này phải khớp với {@code OrderService.cancelByCustomer},
+     * nơi kiểm tra thật.
+     * <p>
+     * Yêu cầu danh sách món đã được nạp; đơn nạp thiếu món sẽ hiện nút huỷ nhưng tầng dịch vụ
+     * vẫn chặn, nên sai lệch chỉ gây khó chịu chứ không cho huỷ nhầm.
      */
     public boolean isCancellable() {
+        if (OrderStatus.PENDING_PAYMENT.name().equals(orderStatus)) {
+            return true;
+        }
         if (!OrderStatus.CONFIRMED.name().equals(orderStatus)) {
             return false;
         }
-        if (isPos()) {
-            return releasedToKdsAt == null;
-        }
-        return kitchenReleaseAt != null && DateTimeUtil.now().isBefore(kitchenReleaseAt);
+        return items.stream()
+                .allMatch(i -> OrderItemStatus.WAITING.name().equals(i.getItemStatus()));
+    }
+
+    /**
+     * Thu ngân còn đóng được đơn này không.
+     * <p>
+     * Rộng hơn hẳn quyền của khách: bao gồm cả đơn đang nấu dở và đơn đã sẵn sàng mà khách
+     * không tới lấy. Thu ngân là người nói chuyện trực tiếp với khách nên phải có lối thoát
+     * cho những tình huống mà máy không tự quyết được.
+     */
+    public boolean isStaffCancellable() {
+        return !statusEnum().isFinal();
+    }
+
+    /**
+     * Còn khoản tiền nào cần hoàn sót lại không.
+     * Huỷ đơn đã tự hoàn tiền, nên đây chỉ là lối sửa cho trường hợp bất thường.
+     */
+    public boolean isRefundPending() {
+        return statusEnum().isFinal()
+            && !OrderStatus.COMPLETED.name().equals(orderStatus)
+            && latestPayment != null
+            && PaymentStatus.PAID.name().equals(latestPayment.getPaymentStatus());
+    }
+
+    /**
+     * Đơn đã thu được tiền hay chưa.
+     * <p>
+     * Chỉ dùng để hiển thị và cảnh báo sớm. Trước khi thật sự giao món,
+     * {@code OrderService.handoff} hỏi lại cơ sở dữ liệu chứ không tin vào đối tượng này —
+     * lần thanh toán gần nhất nạp lúc mở trang có thể đã cũ khi nhân viên bấm nút.
+     */
+    public boolean isPaid() {
+        return latestPayment != null
+            && PaymentStatus.PAID.name().equals(latestPayment.getPaymentStatus());
     }
 
     public int getTotalQuantity() {

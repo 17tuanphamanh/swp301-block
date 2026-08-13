@@ -1,29 +1,25 @@
 <c:set var="pageTitle" value="Đã hoàn thành" /><c:set var="nav" value="history" />
-<!DOCTYPE html>
-<html lang="vi">
-<head><jsp:include page="/WEB-INF/views/layout/head.jsp"/></head>
-<body>
-<jsp:include page="/WEB-INF/views/layout/header.jsp"/>
-
-<main class="container">
+<%@ include file="/WEB-INF/views/layout/page-start.jspf" %>
   <div class="page-head">
     <h1>Món đã hoàn thành</h1>
-    <p>50 món gần nhất, kèm thời gian làm và giờ khách hẹn để đối chiếu.</p>
+    <p>
+      Kèm thời gian làm và giờ khách hẹn để đối chiếu.
+    </p>
   </div>
 
   <div class="card pad0 table-wrap">
     <table>
       <thead>
-        <tr><th>Món</th><th>Đơn</th><th class="center">SL</th><th>Người làm</th>
-            <th>Bắt đầu</th><th>Xong lúc</th><th>Giờ hẹn</th><th>Đúng hẹn</th></tr>
+        <tr><th scope="col">Món</th><th scope="col">Đơn</th><th scope="col" class="center">SL</th><th scope="col">Người làm</th>
+            <th scope="col">Bắt đầu</th><th scope="col">Xong lúc</th><th scope="col">Giờ hẹn</th><th scope="col">Đúng hẹn</th></tr>
       </thead>
       <tbody>
-        <c:forEach var="item" items="${recentReady}">
+        <c:forEach var="item" items="${pageData.items}">
           <tr>
-            <td>${item.productNameSnapshot}</td>
+            <td><c:out value="${item.productNameSnapshot}"/></td>
             <td>#${item.orderId}</td>
             <td class="center">${item.quantity}</td>
-            <td class="small">${item.assignedToName}</td>
+            <td class="small"><c:out value="${item.assignedToName}"/></td>
             <td class="small muted">${ff:time(item.startedAt)}</td>
             <td class="small muted">${ff:time(item.readyAt)}</td>
             <td class="small">
@@ -41,14 +37,11 @@
             </td>
           </tr>
         </c:forEach>
-        <c:if test="${empty recentReady}">
-          <tr><td colspan="8" class="center muted" style="padding:26px;">Chưa có món nào hoàn thành.</td></tr>
+        <c:if test="${pageData.emptyPage}">
+          <tr><td colspan="8" class="center muted cell-empty">Chưa có món nào hoàn thành.</td></tr>
         </c:if>
       </tbody>
     </table>
+    <%@ include file="/WEB-INF/views/layout/pager.jspf" %>
   </div>
-</main>
-
-<jsp:include page="/WEB-INF/views/layout/footer.jsp"/>
-</body>
-</html>
+<%@ include file="/WEB-INF/views/layout/page-end.jspf" %>

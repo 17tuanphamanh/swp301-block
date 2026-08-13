@@ -31,11 +31,16 @@ public class ProfileServlet extends BaseServlet {
         String action = WebUtil.getString(req, "action");
 
         if ("changePassword".equals(action)) {
-            handle(req, resp, () -> authService.changePassword(user.getUserId(),
-                            req.getParameter("currentPassword"),
-                            req.getParameter("newPassword"),
-                            req.getParameter("confirmPassword")),
-                    "Đã đổi mật khẩu.", "/profile");
+            handle(req, resp, () -> {
+                authService.changePassword(user.getUserId(),
+                        req.getParameter("currentPassword"),
+                        req.getParameter("newPassword"),
+                        req.getParameter("confirmPassword"));
+                // Gỡ cờ ngay trên đối tượng trong phiên. Chỉ ghi xuống cơ sở dữ liệu thôi thì
+                // AuthenticationFilter vẫn đọc bản cũ trong phiên và giữ người dùng ở lại đây
+                // mãi, dù họ vừa làm đúng việc được yêu cầu.
+                user.setMustChangePassword(false);
+            }, "Đã đổi mật khẩu.", "/profile");
             return;
         }
 

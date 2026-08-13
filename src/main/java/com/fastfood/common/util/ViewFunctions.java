@@ -161,6 +161,37 @@ public final class ViewFunctions {
         }
     }
 
+    /**
+     * Trạng thái sự cố bếp.
+     * <p>
+     * Ba màn hình cùng hiện danh sách sự cố (bếp, chi tiết món, thu ngân). Để mỗi trang tự
+     * viết điều kiện thì thêm một trạng thái là phải sửa cả ba, và sót một chỗ thì sự cố
+     * thu hồi lại hiện thành "đã xử lý" — đúng cái nhầm lẫn mà trạng thái này sinh ra để tránh.
+     */
+    public static String issueStatus(String status) {
+        if (status == null) {
+            return "";
+        }
+        switch (status) {
+            case "OPEN":      return "Đang mở";
+            case "RESOLVED":  return "Đã xử lý";
+            case "CANCELLED": return "Đã thu hồi";
+            default:          return status;
+        }
+    }
+
+    /** Lớp màu của thẻ trạng thái sự cố, đi kèm {@link #issueStatus(String)}. */
+    public static String issueStatusTag(String status) {
+        if (status == null) {
+            return "";
+        }
+        switch (status) {
+            case "OPEN":      return "tag-red";
+            case "CANCELLED": return "tag-amber";
+            default:          return "tag-green";
+        }
+    }
+
     /** Dịch mã thao tác trong nhật ký sang câu tiếng Việt dễ đọc. */
     public static String auditAction(String action) {
         if (action == null) {
@@ -178,8 +209,12 @@ public final class ViewFunctions {
             case "KDS_RELEASE":          return "Đưa đơn xuống bếp";
             case "ITEM_START":           return "Bếp nhận món";
             case "ITEM_READY":           return "Món hoàn thành";
+            case "ITEM_HANDED_OVER":     return "Bếp bàn giao ra quầy";
+            case "ITEM_RECEIVED":        return "Quầy nhận món";
             case "ISSUE_OPENED":         return "Ghi nhận sự cố";
             case "ISSUE_RESOLVED":       return "Xử lý xong sự cố";
+            case "ISSUE_UPDATED":        return "Sửa mô tả sự cố";
+            case "ISSUE_CANCELLED":      return "Thu hồi sự cố báo nhầm";
             case "PICKUP_VERIFY_OK":     return "Xác minh mã đúng";
             case "PICKUP_VERIFY_FAILED": return "Mã nhận hàng sai";
             case "HANDOFF":              return "Giao món cho khách";

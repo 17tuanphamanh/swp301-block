@@ -1,23 +1,18 @@
 <c:set var="pageTitle" value="Đăng nhập" />
-<!DOCTYPE html>
-<html lang="vi">
-<head><jsp:include page="/WEB-INF/views/layout/head.jsp"/></head>
-<body>
-<jsp:include page="/WEB-INF/views/layout/header.jsp"/>
-
-<main class="container narrow">
+<c:set var="mainClass" value="container narrow" />
+<%@ include file="/WEB-INF/views/layout/page-start.jspf" %>
   <div class="page-head">
     <h1>Đăng nhập</h1>
     <p>Đặt trước và hẹn giờ đến lấy cần đăng nhập. Mua trực tiếp tại quầy thì không cần.</p>
   </div>
 
-  <jsp:include page="/WEB-INF/views/layout/flash.jsp"/>
+  <%@ include file="/WEB-INF/views/layout/flash.jspf" %>
 
   <div class="card">
     <form method="post" action="${ctx}/login">
       <div class="field">
         <label for="email">Email</label>
-        <input type="email" id="email" name="email" value="${email}" required autofocus>
+        <input type="email" id="email" name="email" value="<c:out value="${email}"/>" required autofocus>
       </div>
       <div class="field">
         <label for="password">Mật khẩu</label>
@@ -38,8 +33,4 @@
       <tr><td>Quản trị</td><td class="mono small">admin@fastfood.vn</td></tr>
     </table>
   </div>
-</main>
-
-<jsp:include page="/WEB-INF/views/layout/footer.jsp"/>
-</body>
-</html>
+<%@ include file="/WEB-INF/views/layout/page-end.jspf" %>

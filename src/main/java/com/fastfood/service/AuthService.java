@@ -99,7 +99,8 @@ public class AuthService {
             if (u == null || !PasswordUtil.matches(currentPassword, u.getPasswordHash())) {
                 throw new ValidationException("Mật khẩu hiện tại không đúng.");
             }
-            userDAO.updatePassword(con, userId, PasswordUtil.hash(newPassword));
+            // Tự đổi thì gỡ luôn cờ bắt buộc đổi — đây chính là việc mà cờ đó đang chờ.
+            userDAO.updatePassword(con, userId, PasswordUtil.hash(newPassword), false);
             auditService.log(con, userId, "USER", userId, AuditAction.USER_CHANGED, null, "PASSWORD_CHANGED");
         });
     }

@@ -38,6 +38,67 @@ public class KitchenIssueDAO {
         return issue.getIssueId();
     }
 
+    public KitchenIssue findById(Connection con, int issueId) throws SQLException {
+        try (PreparedStatement ps = con.prepareStatement(BASE + "WHERE ki.issue_id = ?")) {
+            ps.setInt(1, issueId);
+            List<KitchenIssue> list = collect(ps);
+            return list.isEmpty() ? null : list.get(0);
+        }
+    }
+
+    /**
+     * Sửa mô tả sự cố.
+     * <p>
+     * Hai điều kiện "còn đang mở" và "đúng người báo" nằm ngay trong câu lệnh, không kiểm tra
+     * trước rồi mới ghi: giữa hai bước đó người khác có thể vừa đánh dấu đã xử lý xong.
+     */
+    public int updateDescription(Connection con, int issueId, int userId, String description)
+            throws SQLException {
+        String sql = "UPDATE dbo.KitchenIssue SET description = ? " +
+                     "WHERE issue_id = ? AND status = 'OPEN' AND created_by = ?";
+        try (PreparedStatement ps = con.prepareStatement(sql)) {
+            JdbcSupport.setString(ps, 1, description);
+            ps.setInt(2, issueId);
+            ps.setInt(3, userId);
+            return ps.executeUpdate();
+        }
+    }
+
+    /**
+     * Thu hồi sự cố báo nhầm. Dùng lại cột {@code resolved_at} làm mốc đóng sự cố — cả hai
+     * đường ra đều là "sự cố khép lại lúc nào", nên thêm một cột nữa chỉ để phân biệt
+     * lý do đóng là thừa, trong khi cột {@code status} đã nói rõ điều đó.
+     */
+    public int cancel(Connection con, int issueId, int userId, LocalDateTime now) throws SQLException {
+        String sql = "UPDATE dbo.KitchenIssue SET status = 'CANCELLED', resolved_at = ? " +
+                     "WHERE issue_id = ? AND status = 'OPEN' AND created_by = ?";
+        try (PreparedStatement ps = con.prepareStatement(sql)) {
+            JdbcSupport.setDateTime(ps, 1, now);
+            ps.setInt(2, issueId);
+            ps.setInt(3, userId);
+            return ps.executeUpdate();
+        }
+    }
+
+    /**
+     * Còn bao nhiêu báo hết nguyên liệu đang mở cho một món.
+     * <p>
+     * Thu hồi một báo nhầm không đủ để bật món lại: cùng một món có thể đang bị nhiều người
+     * báo hết. Đếm trước rồi mới bật, nếu không thì một lần bấm nhầm sẽ xoá sạch cảnh báo
+     * thật của người khác và khách lại đặt được đúng món đang hết.
+     */
+    public int countOpenOutOfStockForProduct(Connection con, int productId) throws SQLException {
+        String sql = "SELECT COUNT(*) FROM dbo.KitchenIssue ki " +
+                     "JOIN dbo.OrderItem oi ON oi.order_item_id = ki.order_item_id " +
+                     "WHERE oi.product_id = ? AND ki.issue_type = 'OUT_OF_STOCK' AND ki.status = 'OPEN'";
+        try (PreparedStatement ps = con.prepareStatement(sql)) {
+            ps.setInt(1, productId);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() ? rs.getInt(1) : 0;
+            }
+        }
+    }
+
     public int resolve(Connection con, int issueId, LocalDateTime now) throws SQLException {
         String sql = "UPDATE dbo.KitchenIssue SET status = 'RESOLVED', resolved_at = ? " +
                      "WHERE issue_id = ? AND status = 'OPEN'";
@@ -59,6 +120,28 @@ public class KitchenIssueDAO {
         try (PreparedStatement ps = con.prepareStatement(
                 BASE.replaceFirst("SELECT", "SELECT TOP (" + limit + ")") + "ORDER BY ki.created_at DESC")) {
             return collect(ps);
+        }
+    }
+
+    /**
+     * Sự cố đang mở của một đơn cụ thể.
+     * Thu ngân cần cả loại và mô tả để nói chuyện được với khách, không chỉ con số đếm.
+     */
+    public List<KitchenIssue> findOpenByOrder(Connection con, int orderId) throws SQLException {
+        try (PreparedStatement ps = con.prepareStatement(
+                BASE + "WHERE oi.order_id = ? AND ki.status = 'OPEN' ORDER BY ki.created_at DESC")) {
+            ps.setInt(1, orderId);
+            return collect(ps);
+        }
+    }
+
+    /** Số sự cố còn chưa xử lý — hiện trên màn hình điều phối của thu ngân. */
+    public int countOpen(Connection con) throws SQLException {
+        try (PreparedStatement ps = con.prepareStatement(
+                "SELECT COUNT(*) FROM dbo.KitchenIssue WHERE status = 'OPEN'")) {
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() ? rs.getInt(1) : 0;
+            }
         }
     }
 

@@ -136,12 +136,38 @@ public class OrderDAO {
     }
 
     /**
-     * Huỷ đơn. Chỉ thành công khi đơn còn ở trạng thái đã xác nhận và bếp chưa nhận việc —
-     * điều kiện released_to_kds_at IS NULL ngăn huỷ đơn mà nguyên liệu đã dùng rồi.
+     * Khách tự huỷ đơn. Nhận hai trạng thái: chờ thanh toán (khách đổi ý trước khi trả tiền)
+     * và đã xác nhận (đã trả tiền nhưng bếp chưa động tay).
+     * <p>
+     * Điều kiện "bếp chưa động tay" <b>không</b> nằm ở đây mà ở phía gọi, bằng cách đếm số
+     * món đã rời hàng chờ trong lúc đang giữ khoá dòng đơn — xem
+     * {@link com.fastfood.service.OrderService#cancelByCustomer}. Lý do: mốc chặn đúng là
+     * "đã có món được nhận làm", không phải "đơn đã xuống bếp"; hai thời điểm cách nhau 20 phút
+     * và trong khoảng đó huỷ vẫn chưa gây tốn kém gì.
      */
     public int markCancelled(Connection con, int orderId, LocalDateTime now) throws SQLException {
         String sql = "UPDATE dbo.Orders SET order_status = 'CANCELLED', cancelled_at = ? " +
-                     "WHERE order_id = ? AND order_status = 'CONFIRMED' AND released_to_kds_at IS NULL";
+                     "WHERE order_id = ? AND order_status IN ('PENDING_PAYMENT', 'CONFIRMED')";
+        try (PreparedStatement ps = con.prepareStatement(sql)) {
+            JdbcSupport.setDateTime(ps, 1, now);
+            ps.setInt(2, orderId);
+            return ps.executeUpdate();
+        }
+    }
+
+    /**
+     * Huỷ đơn theo quyết định của nhân viên tại quầy.
+     * <p>
+     * Khác {@link #markCancelled} ở chỗ không đòi {@code released_to_kds_at IS NULL}: thu ngân
+     * là người nói chuyện trực tiếp với khách nên phải đóng được cả đơn đang nấu dở và đơn
+     * khách không tới lấy. Thiếu đường này thì đơn READY không có ai đến nhận sẽ nằm lại
+     * vĩnh viễn, và bếp báo hết nguyên liệu cũng không ai xử lý được.
+     * <p>
+     * Vẫn chặn ở các trạng thái kết thúc: đơn đã giao thì không huỷ ngược được.
+     */
+    public int markCancelledByStaff(Connection con, int orderId, LocalDateTime now) throws SQLException {
+        String sql = "UPDATE dbo.Orders SET order_status = 'CANCELLED', cancelled_at = ? " +
+                     "WHERE order_id = ? AND order_status IN ('CONFIRMED', 'PREPARING', 'READY')";
         try (PreparedStatement ps = con.prepareStatement(sql)) {
             JdbcSupport.setDateTime(ps, 1, now);
             ps.setInt(2, orderId);
@@ -208,11 +234,44 @@ public class OrderDAO {
     }
 
     /** Lịch sử đơn của một khách. Điều kiện customer_id đảm bảo không xem được đơn người khác. */
-    public List<Order> findByCustomer(Connection con, int customerId) throws SQLException {
+    public List<Order> findByCustomer(Connection con, int customerId,
+                                      int offset, int limit) throws SQLException {
         try (PreparedStatement ps = con.prepareStatement(
-                BASE + "WHERE o.customer_id = ? ORDER BY o.created_at DESC")) {
+                BASE + "WHERE o.customer_id = ? "
+                     + "ORDER BY o.created_at DESC, o.order_id DESC "
+                     + "OFFSET ? ROWS FETCH NEXT ? ROWS ONLY")) {
             ps.setInt(1, customerId);
+            ps.setInt(2, offset);
+            ps.setInt(3, limit);
             return collect(ps);
+        }
+    }
+
+    public long countByCustomer(Connection con, int customerId) throws SQLException {
+        try (PreparedStatement ps = con.prepareStatement(
+                "SELECT COUNT(*) FROM dbo.Orders o WHERE o.customer_id = ?")) {
+            ps.setInt(1, customerId);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() ? rs.getLong(1) : 0L;
+            }
+        }
+    }
+
+    /**
+     * Đơn chờ thanh toán còn dang dở của khách, nếu có.
+     * <p>
+     * Giỏ hàng chỉ được dọn khi tiền về, nên trong lúc khách còn đang ở cổng thanh toán thì
+     * giỏ vẫn nguyên. Không kiểm tra chỗ này thì khách quay lại giỏ và đặt tiếp sẽ tạo đơn
+     * thứ hai cho cùng số hàng đó.
+     */
+    public Order findPendingByCustomer(Connection con, int customerId) throws SQLException {
+        try (PreparedStatement ps = con.prepareStatement(BASE +
+                "WHERE o.customer_id = ? AND o.order_status = 'PENDING_PAYMENT' " +
+                "ORDER BY o.created_at DESC")) {
+            ps.setInt(1, customerId);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() ? map(rs) : null;
+            }
         }
     }
 
@@ -229,13 +288,22 @@ public class OrderDAO {
     /**
      * Bốn tab trên màn hình đơn hàng của thu ngân.
      * Tab quá hạn tính ngay trong SQL để không phải tải toàn bộ đơn READY về rồi lọc ở Java.
+     * <p>
+     * Bốn tab phải phủ kín mọi đơn chưa kết thúc, nếu không thì có đơn không hiện ở đâu cả
+     * và thu ngân chỉ tìm ra nó khi khách hỏi. Cách chia: tab đặt trước giữ đơn Online từ lúc
+     * xác nhận tới lúc xong món, tab tại quầy giữ đơn POS tương ứng, tab sẵn sàng gom cả hai
+     * kênh khi món đã xong, tab quá hạn là lát cắt con của tab sẵn sàng.
      */
     public List<Order> findForDashboard(Connection con, String tab, LocalDateTime now, int overdueMinutes)
             throws SQLException {
         String where;
         switch (tab == null ? "" : tab) {
             case "SCHEDULED":
-                where = "WHERE o.order_source = 'ONLINE_PREORDER' AND o.order_status = 'CONFIRMED' " +
+                // Cả CONFIRMED lẫn PREPARING: đơn đặt trước đã xuống bếp và đang được làm vẫn
+                // là đơn hẹn giờ. Chỉ lấy CONFIRMED thì đơn rơi khỏi tab này ngay khi đầu bếp
+                // nhận việc, và mắc kẹt ngoài mọi tab cho tới lúc món xong.
+                where = "WHERE o.order_source = 'ONLINE_PREORDER' " +
+                        "AND o.order_status IN ('CONFIRMED','PREPARING') " +
                         "ORDER BY o.kitchen_release_at";
                 break;
             case "READY":
@@ -262,9 +330,39 @@ public class OrderDAO {
 
     /** Tra cứu đơn cho màn hình lịch sử và kiểm toán. */
     public List<Order> search(Connection con, String source, String status,
-                              LocalDateTime from, LocalDateTime to) throws SQLException {
-        StringBuilder sql = new StringBuilder(BASE + "WHERE 1 = 1 ");
+                              LocalDateTime from, LocalDateTime to,
+                              int offset, int limit) throws SQLException {
         List<Object> params = new ArrayList<>();
+        // Sắp thêm theo order_id để thứ tự luôn xác định: nhiều đơn có thể trùng
+        // created_at tới từng giây, và khi đó ranh giới giữa hai trang sẽ chập chờn —
+        // cùng một đơn hiện ở cả trang 1 lẫn trang 2, hoặc biến mất khỏi cả hai.
+        String sql = BASE + searchWhere(source, status, from, to, params)
+                   + "ORDER BY o.created_at DESC, o.order_id DESC "
+                   + "OFFSET ? ROWS FETCH NEXT ? ROWS ONLY";
+        try (PreparedStatement ps = con.prepareStatement(sql)) {
+            int i = bind(ps, params);
+            ps.setInt(i++, offset);
+            ps.setInt(i, limit);
+            return collect(ps);
+        }
+    }
+
+    public long countSearch(Connection con, String source, String status,
+                            LocalDateTime from, LocalDateTime to) throws SQLException {
+        List<Object> params = new ArrayList<>();
+        String sql = "SELECT COUNT(*) FROM dbo.Orders o " + searchWhere(source, status, from, to, params);
+        try (PreparedStatement ps = con.prepareStatement(sql)) {
+            bind(ps, params);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() ? rs.getLong(1) : 0L;
+            }
+        }
+    }
+
+    /** Mệnh đề lọc dùng chung cho câu lấy dữ liệu và câu đếm, để hai bên không lệch nhau. */
+    private String searchWhere(String source, String status,
+                               LocalDateTime from, LocalDateTime to, List<Object> params) {
+        StringBuilder sql = new StringBuilder("WHERE 1 = 1 ");
         if (source != null && !source.isBlank()) {
             sql.append("AND o.order_source = ? ");
             params.add(source);
@@ -281,13 +379,14 @@ public class OrderDAO {
             sql.append("AND o.created_at <= ? ");
             params.add(Timestamp.valueOf(to));
         }
-        sql.append("ORDER BY o.created_at DESC");
-        try (PreparedStatement ps = con.prepareStatement(sql.toString())) {
-            for (int i = 0; i < params.size(); i++) {
-                ps.setObject(i + 1, params.get(i));
-            }
-            return collect(ps);
+        return sql.toString();
+    }
+
+    private int bind(PreparedStatement ps, List<Object> params) throws SQLException {
+        for (int i = 0; i < params.size(); i++) {
+            ps.setObject(i + 1, params.get(i));
         }
+        return params.size() + 1;
     }
 
     /**
@@ -306,12 +405,16 @@ public class OrderDAO {
         }
     }
 
-    /** Các đơn chờ thanh toán đã quá hạn. */
+    /**
+     * Các đơn chờ thanh toán đã quá hạn.
+     * <p>
+     * Dùng {@code BASE} để lấy kèm tên và email khách chứ không chọn NULL cho nhanh: bộ hẹn giờ
+     * còn phải báo cho khách biết đơn đã hết hiệu lực, mà thiếu email thì tin nhắn đi vào chỗ
+     * trống và không có gì báo lỗi — hỏng lặng lẽ, kiểu khó phát hiện nhất.
+     */
     public List<Order> findExpiredCandidates(Connection con, LocalDateTime deadline) throws SQLException {
-        String sql = "SELECT " + COLS + ", NULL AS customer_name, NULL AS customer_email, " +
-                     "NULL AS handoff_by_name FROM dbo.Orders o " +
-                     "WHERE o.order_status = 'PENDING_PAYMENT' AND o.created_at <= ?";
-        try (PreparedStatement ps = con.prepareStatement(sql)) {
+        try (PreparedStatement ps = con.prepareStatement(
+                BASE + "WHERE o.order_status = 'PENDING_PAYMENT' AND o.created_at <= ?")) {
             JdbcSupport.setDateTime(ps, 1, deadline);
             return collect(ps);
         }

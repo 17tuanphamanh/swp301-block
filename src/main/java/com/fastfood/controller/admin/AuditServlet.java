@@ -3,7 +3,6 @@ package com.fastfood.controller.admin;
 import com.fastfood.common.util.WebUtil;
 import com.fastfood.controller.BaseServlet;
 import com.fastfood.service.AuditService;
-import com.fastfood.service.OrderService;
 
 import javax.servlet.ServletException;
 import javax.servlet.annotation.WebServlet;
@@ -21,7 +20,6 @@ import java.io.IOException;
 public class AuditServlet extends BaseServlet {
 
     private final AuditService auditService = new AuditService();
-    private final OrderService orderService = new OrderService();
 
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp)
@@ -29,12 +27,15 @@ public class AuditServlet extends BaseServlet {
         String entityType = WebUtil.getString(req, "entityType");
         String action = WebUtil.getString(req, "action");
 
-        req.setAttribute("logs", auditService.search(entityType, action,
-                WebUtil.getDateTime(req, "from"), WebUtil.getDateTime(req, "to"), 200));
+        req.setAttribute("pageData", auditService.search(entityType, action,
+                WebUtil.getDateTime(req, "from"), WebUtil.getDateTime(req, "to"),
+                WebUtil.getInt(req, "page", 1)));
+        // Liên kết chuyển trang phải mang theo bộ lọc đang áp dụng, nếu không thì bấm sang
+        // trang 2 lại nhảy về xem toàn bộ nhật ký.
+        req.setAttribute("filterQuery", WebUtil.queryStringWithout(req, "page"));
         req.setAttribute("actions", auditService.distinctActions());
         req.setAttribute("entityType", entityType);
         req.setAttribute("action", action);
-        req.setAttribute("recentOrders", orderService.search(null, null, null, null));
         forward(req, resp, "admin/audit.jsp");
     }
 }

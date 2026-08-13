@@ -1,29 +1,31 @@
 <c:set var="pageTitle" value="${product.name}" /><c:set var="nav" value="menu" />
-<!DOCTYPE html>
-<html lang="vi">
-<head><jsp:include page="/WEB-INF/views/layout/head.jsp"/></head>
-<body>
-<jsp:include page="/WEB-INF/views/layout/header.jsp"/>
-
-<main class="container medium">
+<c:set var="mainClass" value="container medium" />
+<%@ include file="/WEB-INF/views/layout/page-start.jspf" %>
   <p class="small mb"><a href="${ctx}/menu">← Quay lại thực đơn</a></p>
 
-  <jsp:include page="/WEB-INF/views/layout/flash.jsp"/>
+  <%@ include file="/WEB-INF/views/layout/flash.jspf" %>
 
   <div class="card grid grid-2">
-    <div class="thumb" style="height:200px; border-radius:8px; background:linear-gradient(135deg,#fff1f0,#fef6ec);
-         display:flex; align-items:center; justify-content:center; font-size:60px;">🍔</div>
+    <c:choose>
+      <c:when test="${not empty product.imageUrl}">
+        <img class="thumb thumb-lg thumb-img" src="<c:out value="${product.imageUrl}"/>" alt=""
+             loading="lazy" referrerpolicy="no-referrer" data-fallback="🍔">
+      </c:when>
+      <c:otherwise>
+        <div class="thumb thumb-lg" aria-hidden="true">🍔</div>
+      </c:otherwise>
+    </c:choose>
     <div class="stack">
-      <span class="tag tag-muted">${product.categoryName}</span>
-      <h1>${product.name}</h1>
-      <p class="muted">${product.description}</p>
-      <div class="price" style="font-size:24px; font-weight:700; color:var(--brand);">
+      <span class="tag tag-muted"><c:out value="${product.categoryName}"/></span>
+      <h1><c:out value="${product.name}"/></h1>
+      <p class="muted"><c:out value="${product.description}"/></p>
+      <div class="price price-lg">
         ${ff:money(product.price)}
       </div>
 
       <c:choose>
         <c:when test="${not product.orderable}">
-          <div class="alert alert-warn" style="margin:0;">Món này hiện không còn phục vụ.</div>
+          <div class="alert alert-warn flush">Món này hiện không còn phục vụ.</div>
         </c:when>
         <c:when test="${empty me}">
           <a class="btn btn-primary" href="${ctx}/login">Đăng nhập để đặt món</a>
@@ -46,8 +48,4 @@
       </c:choose>
     </div>
   </div>
-</main>
-
-<jsp:include page="/WEB-INF/views/layout/footer.jsp"/>
-</body>
-</html>
+<%@ include file="/WEB-INF/views/layout/page-end.jspf" %>

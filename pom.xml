@@ -107,6 +107,25 @@
                 <artifactId>maven-compiler-plugin</artifactId>
                 <version>3.13.0</version>
             </plugin>
+            <!--
+                Test chia hai nhóm bằng đuôi tên lớp:
+                  *Test  — logic thuần, chạy được ở mọi nơi, không cần cơ sở dữ liệu
+                  *IT    — chạy thật qua Service/DAO tới SQL Server ở localhost
+
+                Nhóm IT tự bỏ qua khi không có máy chủ (xem TestDatabase), nên `mvn test`
+                trên máy chưa cài SQL Server vẫn xanh thay vì đỏ vì lý do ngoài mã nguồn.
+            -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>3.2.5</version>
+                <configuration>
+                    <includes>
+                        <include>**/*Test.java</include>
+                        <include>**/*IT.java</include>
+                    </includes>
+                </configuration>
+            </plugin>
         </plugins>
     </build>
 </project>

@@ -1,28 +1,22 @@
 <c:set var="pageTitle" value="Nhóm món" /><c:set var="nav" value="categories" />
-<!DOCTYPE html>
-<html lang="vi">
-<head><jsp:include page="/WEB-INF/views/layout/head.jsp"/></head>
-<body>
-<jsp:include page="/WEB-INF/views/layout/header.jsp"/>
-
-<main class="container">
+<%@ include file="/WEB-INF/views/layout/page-start.jspf" %>
   <div class="page-head">
     <h1>Nhóm món</h1>
     <p>Tắt một nhóm sẽ ẩn toàn bộ món trong nhóm khỏi thực đơn — cách nhanh nhất để ngừng bán cả dòng sản phẩm.</p>
   </div>
 
-  <jsp:include page="/WEB-INF/views/layout/flash.jsp"/>
+  <%@ include file="/WEB-INF/views/layout/flash.jspf" %>
 
   <div class="grid grid-side">
     <div class="card pad0 table-wrap">
       <table>
-        <thead><tr><th class="center">Thứ tự</th><th>Tên nhóm</th>
-                   <th class="center">Số món</th><th>Trạng thái</th><th></th></tr></thead>
+        <thead><tr><th scope="col" class="center">Thứ tự</th><th scope="col">Tên nhóm</th>
+                   <th scope="col" class="center">Số món</th><th scope="col">Trạng thái</th><th scope="col"><span class="visually-hidden">Thao tác</span></th></tr></thead>
         <tbody>
           <c:forEach var="cat" items="${categories}">
             <tr>
               <td class="center">${cat.displayOrder}</td>
-              <td><strong>${cat.name}</strong></td>
+              <td><strong><c:out value="${cat.name}"/></strong></td>
               <td class="center">${cat.productCount}</td>
               <td>
                 <span class="tag ${cat.active ? 'tag-green' : 'tag-muted'}">
@@ -42,7 +36,7 @@
         <input type="hidden" name="categoryId" value="${editing.categoryId}">
         <div class="field">
           <label for="name">Tên nhóm</label>
-          <input type="text" id="name" name="name" value="${editing.name}" required>
+          <input type="text" id="name" name="name" value="<c:out value="${editing.name}"/>" required>
         </div>
         <div class="field">
           <label for="displayOrder">Thứ tự hiển thị</label>
@@ -51,7 +45,7 @@
         <div class="field check">
           <input type="checkbox" id="active" name="active" value="true"
                  ${empty editing or editing.active ? 'checked' : ''}>
-          <label for="active" style="margin:0;">Hiện trên thực đơn</label>
+          <label for="active">Hiện trên thực đơn</label>
         </div>
         <button type="submit" class="btn btn-primary btn-block">
           ${empty editing ? 'Thêm nhóm' : 'Lưu thay đổi'}
@@ -62,8 +56,4 @@
       </form>
     </div>
   </div>
-</main>
-
-<jsp:include page="/WEB-INF/views/layout/footer.jsp"/>
-</body>
-</html>
+<%@ include file="/WEB-INF/views/layout/page-end.jspf" %>

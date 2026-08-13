@@ -1,11 +1,6 @@
 <c:set var="pageTitle" value="Thanh toán" />
-<!DOCTYPE html>
-<html lang="vi">
-<head><jsp:include page="/WEB-INF/views/layout/head.jsp"/></head>
-<body>
-<jsp:include page="/WEB-INF/views/layout/header.jsp"/>
-
-<main class="container narrow">
+<c:set var="mainClass" value="container narrow" />
+<%@ include file="/WEB-INF/views/layout/page-start.jspf" %>
   <div class="card">
     <div class="alert alert-warn">
       <strong>Cổng thanh toán giả lập.</strong>
@@ -16,17 +11,17 @@
     <h1>Xác nhận thanh toán</h1>
     <div class="mt mb">
       <div class="total-line"><span class="muted">Mã đơn</span><span>#${orderId}</span></div>
-      <div class="total-line"><span class="muted">Mã giao dịch</span><span class="mono small">${txnId}</span></div>
-      <div class="total-line grand"><span>Số tiền</span><span>${amount} đ</span></div>
+      <div class="total-line"><span class="muted">Mã giao dịch</span><span class="mono small"><c:out value="${txnId}"/></span></div>
+      <div class="total-line grand"><span>Số tiền</span><span><c:out value="${amount}"/> đ</span></div>
     </div>
 
     <div class="stack">
-      <a class="btn btn-green btn-block"
-         href="${ctx}/payment/callback?paymentId=${paymentId}&txnId=${txnId}&orderId=${orderId}&success=true&sig=${successSig}">
+      <a class="btn btn-green btn-block touch"
+         href="${ctx}/payment/callback?paymentId=${paymentId}&txnId=<c:out value="${txnId}"/>&orderId=${orderId}&success=true&sig=${successSig}">
         Thanh toán thành công
       </a>
       <a class="btn btn-danger btn-block"
-         href="${ctx}/payment/callback?paymentId=${paymentId}&txnId=${txnId}&orderId=${orderId}&success=false&sig=${failureSig}">
+         href="${ctx}/payment/callback?paymentId=${paymentId}&txnId=<c:out value="${txnId}"/>&orderId=${orderId}&success=false&sig=${failureSig}">
         Thanh toán thất bại
       </a>
       <a class="btn btn-block" href="${ctx}/order/track?orderId=${orderId}">
@@ -39,8 +34,4 @@
       không ghi nhận tiền thêm lần nữa.
     </p>
   </div>
-</main>
-
-<jsp:include page="/WEB-INF/views/layout/footer.jsp"/>
-</body>
-</html>
+<%@ include file="/WEB-INF/views/layout/page-end.jspf" %>

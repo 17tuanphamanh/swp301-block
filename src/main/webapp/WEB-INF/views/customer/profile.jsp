@@ -1,34 +1,36 @@
 <c:set var="pageTitle" value="Tài khoản" />
-<!DOCTYPE html>
-<html lang="vi">
-<head><jsp:include page="/WEB-INF/views/layout/head.jsp"/></head>
-<body>
-<jsp:include page="/WEB-INF/views/layout/header.jsp"/>
-
-<main class="container medium">
+<c:set var="mainClass" value="container medium" />
+<%@ include file="/WEB-INF/views/layout/page-start.jspf" %>
   <div class="page-head"><h1>Tài khoản</h1></div>
 
-  <jsp:include page="/WEB-INF/views/layout/flash.jsp"/>
+  <%@ include file="/WEB-INF/views/layout/flash.jspf" %>
+
+  <c:if test="${me.mustChangePassword}">
+    <div class="alert alert-warn">
+      Mật khẩu hiện tại do quản trị viên đặt hộ nên không còn là bí mật của riêng bạn.
+      Hãy đặt mật khẩu mới ở ô bên dưới — trong lúc chờ, các màn hình khác tạm thời chưa mở.
+    </div>
+  </c:if>
 
   <div class="grid grid-2">
     <div class="card">
       <h2>Thông tin cá nhân</h2>
       <form method="post" action="${ctx}/profile">
         <div class="field">
-          <label>Email <span class="hint">(không đổi được)</span></label>
-          <input type="email" value="${profile.email}" disabled>
+          <label for="profileEmail">Email <span class="hint">(không đổi được)</span></label>
+          <input type="email" id="profileEmail" value="<c:out value="${profile.email}"/>" disabled>
         </div>
         <div class="field">
-          <label>Vai trò</label>
-          <input type="text" value="${ff:roleName(profile.roleName)}" disabled>
+          <label for="profileRole">Vai trò</label>
+          <input type="text" id="profileRole" value="${ff:roleName(profile.roleName)}" disabled>
         </div>
         <div class="field">
           <label for="fullName">Họ và tên</label>
-          <input type="text" id="fullName" name="fullName" value="${profile.fullName}" required>
+          <input type="text" id="fullName" name="fullName" value="<c:out value="${profile.fullName}"/>" required>
         </div>
         <div class="field">
           <label for="phone">Số điện thoại</label>
-          <input type="text" id="phone" name="phone" value="${profile.phone}">
+          <input type="text" id="phone" name="phone" value="<c:out value="${profile.phone}"/>">
         </div>
         <button type="submit" class="btn btn-primary">Lưu thay đổi</button>
       </form>
@@ -54,8 +56,4 @@
       </form>
     </div>
   </div>
-</main>
-
-<jsp:include page="/WEB-INF/views/layout/footer.jsp"/>
-</body>
-</html>
+<%@ include file="/WEB-INF/views/layout/page-end.jspf" %>

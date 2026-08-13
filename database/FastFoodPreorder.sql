@@ -21,7 +21,7 @@
      1. Tạo database
      2. Xoá đối tượng cũ
      3. 13 bảng          (nhóm: danh mục · giỏ hàng · đơn hàng · thanh toán · vận hành)
-     4. 14 index
+     4. 17 index
      5. 2 view           (suy ra trạng thái release & KPI đúng hẹn)
      6. 6 trigger        (BR-04 + chặn hard-delete BR-20)
      7. Dữ liệu mẫu     (7 user · 13 món · 11 đơn phủ đủ 7 trạng thái)
@@ -120,6 +120,9 @@ CREATE TABLE dbo.Users (
     password_hash VARCHAR(255)      NOT NULL,      -- bcrypt; để 255 để sau này đổi thuật toán không phải sửa bảng
     role_id       INT               NOT NULL,      -- MVP: 1 User = 1 Role
     status        VARCHAR(20)       NOT NULL CONSTRAINT DF_Users_status    DEFAULT ('ACTIVE'),
+    /* Bật khi quản trị viên đặt lại mật khẩu hộ. Mật khẩu lúc đó ít nhất hai người biết,
+       nên tài khoản chỉ vào được trang tài khoản cho tới khi chủ nhân tự đặt lại. */
+    must_change_password BIT        NOT NULL CONSTRAINT DF_Users_mustChangePw DEFAULT (0),
     created_at    DATETIME2(0)      NOT NULL CONSTRAINT DF_Users_createdAt DEFAULT (SYSDATETIME()),
     updated_at    DATETIME2(0)      NULL,
     CONSTRAINT PK_Users        PRIMARY KEY (user_id),
@@ -251,6 +254,13 @@ CREATE TABLE dbo.Orders (
         ((order_source = 'ONLINE_PREORDER' AND pickup_time IS NOT NULL)
       OR (order_source = 'POS'             AND pickup_time IS NULL)),
 
+    /* Đặt trước bắt buộc đăng nhập, nên đơn Online luôn có chủ. Không có ràng buộc này thì
+       một đơn Online thiếu customer_id vẫn ghi được, và sau đó không ai tra được lịch sử của
+       nó, không gửi được tin báo món sẵn sàng, cũng không kiểm tra được quyền xem đơn.
+       Khách vãng lai mua tại quầy thì ngược lại: cố tình để trống, không bắt lập tài khoản. */
+    CONSTRAINT CK_Orders_onlineCustomer CHECK
+        (order_source <> 'ONLINE_PREORDER' OR customer_id IS NOT NULL),
+
     -- bắt lỗi tính sai lead time ngay tại DB: kế hoạch vào bếp phải trước giờ hẹn
     CONSTRAINT CK_Orders_releaseBeforePickup CHECK
         (kitchen_release_at IS NULL OR pickup_time IS NULL OR kitchen_release_at < pickup_time),
@@ -279,13 +289,31 @@ CREATE TABLE dbo.OrderItem (
     assigned_to_user_id   INT               NULL,      -- đầu bếp đã nhận việc
     started_at            DATETIME2(0)      NULL,
     ready_at              DATETIME2(0)      NULL,
+
+    /* Bàn giao món từ bếp ra quầy. Hai mốc chứ không phải một: bếp đặt món lên quầy và thu
+       ngân cầm lấy là hai hành động của hai người, và khoảng giữa chúng chính là lúc món
+       nằm chờ — đó mới là thứ màn hình quầy cần hiện ra.
+
+       Không nhét vào item_status vì đây là trục song song: món vẫn ở trạng thái READY suốt
+       cả hai bước. Thêm bậc vào chuỗi WAITING→PREPARING→READY sẽ kéo theo mọi chỗ đang đếm
+       "món chưa xong" phải sửa lại, trong khi nghĩa của chúng không hề đổi. */
+    handed_over_at        DATETIME2(0)      NULL,      -- bếp đưa món ra quầy
+    handed_over_by        INT               NULL,
+    received_at           DATETIME2(0)      NULL,      -- thu ngân nhận món tại quầy
+    received_by           INT               NULL,
+
     CONSTRAINT PK_OrderItem          PRIMARY KEY (order_item_id),
     CONSTRAINT FK_OrderItem_Orders   FOREIGN KEY (order_id)            REFERENCES dbo.Orders(order_id),
     CONSTRAINT FK_OrderItem_Product  FOREIGN KEY (product_id)          REFERENCES dbo.Product(product_id),
     CONSTRAINT FK_OrderItem_Assignee FOREIGN KEY (assigned_to_user_id) REFERENCES dbo.Users(user_id),
+    CONSTRAINT FK_OrderItem_HandedBy FOREIGN KEY (handed_over_by)      REFERENCES dbo.Users(user_id),
+    CONSTRAINT FK_OrderItem_RecvBy   FOREIGN KEY (received_by)         REFERENCES dbo.Users(user_id),
     CONSTRAINT CK_OrderItem_qty      CHECK (quantity > 0),
     CONSTRAINT CK_OrderItem_price    CHECK (unit_price >= 0),
-    CONSTRAINT CK_OrderItem_status   CHECK (item_status IN ('WAITING','PREPARING','READY'))
+    CONSTRAINT CK_OrderItem_status   CHECK (item_status IN ('WAITING','PREPARING','READY')),
+    /* Không thể nhận món chưa được bàn giao. Ràng buộc này chặn đứng thứ tự ngược ngay ở
+       tầng dữ liệu, kể cả khi có ai đó sửa thẳng bằng câu lệnh SQL. */
+    CONSTRAINT CK_OrderItem_handover CHECK (received_at IS NULL OR handed_over_at IS NOT NULL)
 );
 GO
 
@@ -340,14 +368,18 @@ CREATE TABLE dbo.Notification (
     user_id         INT               NULL,       -- NULL với khách vãng lai không có tài khoản
     order_id        INT               NOT NULL,
     channel         VARCHAR(20)       NOT NULL CONSTRAINT DF_Notification_channel DEFAULT ('MOCK'),
-    event_type      VARCHAR(30)       NOT NULL,   -- ORDER_CONFIRMED | ORDER_READY
+    event_type      VARCHAR(30)       NOT NULL,   -- xem com.fastfood.common.constant.NotificationEvent
     content         NVARCHAR(MAX)     NULL,       -- tin báo sẵn sàng phải kèm giờ hẹn và mã nhận hàng
     status          VARCHAR(20)       NOT NULL CONSTRAINT DF_Notification_status  DEFAULT ('PENDING'),
     sent_at         DATETIME2(0)      NULL,
     CONSTRAINT PK_Notification         PRIMARY KEY (notification_id),
     CONSTRAINT FK_Notification_Users   FOREIGN KEY (user_id)  REFERENCES dbo.Users(user_id),
     CONSTRAINT FK_Notification_Orders  FOREIGN KEY (order_id) REFERENCES dbo.Orders(order_id),
-    CONSTRAINT CK_Notification_event   CHECK (event_type IN ('ORDER_CONFIRMED','ORDER_READY')),
+    /* Bốn sự kiện sau đều là chuyện khách cần biết ngay mà không phải tự mở trang ra xem.
+       Hai cái đầu là tin vui, hai cái sau là tin xấu — thiếu chúng thì đơn hết hiệu lực hay
+       tiền được hoàn lại đều diễn ra im lặng, khách chỉ phát hiện qua sao kê ngân hàng. */
+    CONSTRAINT CK_Notification_event   CHECK (event_type IN
+        ('ORDER_CONFIRMED','ORDER_READY','ORDER_CANCELLED','ORDER_EXPIRED')),
     CONSTRAINT CK_Notification_status  CHECK (status  IN ('PENDING','SENT','FAILED')),
     CONSTRAINT CK_Notification_channel CHECK (channel IN ('EMAIL','MOCK'))
 );
@@ -367,7 +399,9 @@ CREATE TABLE dbo.KitchenIssue (
     CONSTRAINT PK_KitchenIssue    PRIMARY KEY (issue_id),
     CONSTRAINT FK_Issue_OrderItem FOREIGN KEY (order_item_id) REFERENCES dbo.OrderItem(order_item_id),
     CONSTRAINT FK_Issue_Users     FOREIGN KEY (created_by)    REFERENCES dbo.Users(user_id),
-    CONSTRAINT CK_Issue_status    CHECK (status     IN ('OPEN','RESOLVED')),
+    -- CANCELLED: sự cố báo nhầm, do chính người báo thu hồi khi còn đang mở. Giữ lại dòng
+    -- thay vì xoá hẳn để nhật ký thao tác vẫn dẫn được về đúng bản ghi mà nó nhắc tới.
+    CONSTRAINT CK_Issue_status    CHECK (status     IN ('OPEN','RESOLVED','CANCELLED')),
     CONSTRAINT CK_Issue_type      CHECK (issue_type IN ('OUT_OF_STOCK','QUALITY','REMAKE','OTHER'))
 );
 GO
@@ -431,13 +465,25 @@ CREATE INDEX IX_OrderItem_order ON dbo.OrderItem(order_id) INCLUDE (item_status)
 
 -- hàng chờ và việc đang làm trên màn hình bếp: truy vấn lại mỗi 2 giây
 CREATE INDEX IX_OrderItem_kds ON dbo.OrderItem(item_status, assigned_to_user_id) INCLUDE (order_id);
+
+/* Món bếp đã đưa ra quầy mà thu ngân chưa cầm. Cùng nguyên tắc lọc như IX_Orders_release:
+   điều kiện WHERE giữ index chỉ chứa những món đang thật sự nằm chờ trên quầy — thường vài
+   dòng — nên nó không lớn lên theo số món đã bán từ đầu tới giờ.
+   Đáng có index riêng vì con số này còn hiện thành huy hiệu trên thanh điều hướng của thu
+   ngân, tức là chạy ở MỌI trang thu ngân mở ra, không riêng màn hình quầy giao nhận. */
+CREATE INDEX IX_OrderItem_counter ON dbo.OrderItem(handed_over_at, order_item_id)
+    INCLUDE (order_id) WHERE received_at IS NULL;
 GO
 
 -- kiểm tra đã thanh toán chưa trước khi giao món
 CREATE INDEX IX_Payment_order ON dbo.Payment(order_id, payment_status);
 
--- báo cáo doanh thu: quét theo khoảng ngày
-CREATE INDEX IX_Payment_paidAt ON dbo.Payment(paid_at) INCLUDE (amount, method, payment_status);
+/* Báo cáo doanh thu quét theo khoảng ngày, và quét bằng HAI mốc chứ không một:
+   tiền thu vào tính theo paid_at, tiền hoàn ra tính theo refunded_at. Một khoản thu
+   tháng này mà hoàn tháng sau phải rơi vào đúng hai kỳ khác nhau, nên mỗi mốc cần
+   một index riêng. */
+CREATE INDEX IX_Payment_paidAt     ON dbo.Payment(paid_at)     INCLUDE (amount, method, payment_status);
+CREATE INDEX IX_Payment_refundedAt ON dbo.Payment(refunded_at) INCLUDE (amount, method) WHERE refunded_at IS NOT NULL;
 
 CREATE INDEX IX_Transaction_payment ON dbo.PaymentTransaction(payment_id);
 GO
@@ -636,19 +682,19 @@ GO
 INSERT INTO dbo.Product (category_id, name, description, price, image_url, is_available, status)
 SELECT c.category_id, v.name, v.description, v.price, v.image_url, v.is_available, v.status
 FROM (VALUES
-    (N'Burger',       N'Burger Bò Phô Mai',   N'Bò nướng, phô mai cheddar, rau tươi',   55000., '/assets/images/burger-bo.jpg',  1, 'ACTIVE'),
-    (N'Burger',       N'Burger Gà Giòn',      N'Gà chiên giòn, sốt mayonnaise',         49000., '/assets/images/burger-ga.jpg',  1, 'ACTIVE'),
-    (N'Gà rán',       N'Gà Rán 1 Miếng',      N'Gà rán truyền thống',                   35000., '/assets/images/ga-ran-1.jpg',   1, 'ACTIVE'),
-    (N'Gà rán',       N'Gà Rán 3 Miếng',      N'Phần ba miếng gà rán',                  95000., '/assets/images/ga-ran-3.jpg',   1, 'ACTIVE'),
-    (N'Khoai tây',    N'Khoai Tây Chiên (M)', N'Khoai tây chiên cỡ vừa',                25000., '/assets/images/khoai-m.jpg',    1, 'ACTIVE'),
-    (N'Khoai tây',    N'Khoai Tây Chiên (L)', N'Khoai tây chiên cỡ lớn',                35000., '/assets/images/khoai-l.jpg',    1, 'ACTIVE'),
-    (N'Đồ uống',      N'Pepsi (M)',           N'Nước ngọt có ga',                       15000., '/assets/images/pepsi.jpg',      1, 'ACTIVE'),
-    (N'Đồ uống',      N'Trà Đào Cam Sả',      N'Trà đào cam sả',                        29000., '/assets/images/tra-dao.jpg',    1, 'ACTIVE'),
-    (N'Combo',        N'Combo Burger Solo',   N'Burger bò, khoai tây cỡ vừa và Pepsi',  85000., '/assets/images/combo-solo.jpg', 1, 'ACTIVE'),
-    (N'Combo',        N'Combo Gia Đình',      N'Ba gà rán, hai khoai lớn và bốn nước', 259000., '/assets/images/combo-gd.jpg',   1, 'ACTIVE'),
-    (N'Gà rán',       N'Gà Rán Cay Hàn Quốc', N'Sốt cay kiểu Hàn — tạm hết hàng',       45000., '/assets/images/ga-cay.jpg',     0, 'ACTIVE'),
-    (N'Đồ uống',      N'Nước Cam Ép',         N'Đã ngừng kinh doanh',                   30000., '/assets/images/cam-ep.jpg',     1, 'INACTIVE'),
-    (N'Món theo mùa', N'Bánh Trung Thu',      N'Món theo mùa, ngoài menu thường',       60000., '/assets/images/trung-thu.jpg',  1, 'ACTIVE')
+    (N'Burger',       N'Burger Bò Phô Mai',   N'Bò nướng, phô mai cheddar, rau tươi',   55000., 'https://placehold.co/400x300/fff1f0/d92d20?text=Burger+Bo+Pho+Mai',  1, 'ACTIVE'),
+    (N'Burger',       N'Burger Gà Giòn',      N'Gà chiên giòn, sốt mayonnaise',         49000., 'https://placehold.co/400x300/fff1f0/d92d20?text=Burger+Ga+Gion',  1, 'ACTIVE'),
+    (N'Gà rán',       N'Gà Rán 1 Miếng',      N'Gà rán truyền thống',                   35000., 'https://placehold.co/400x300/fff1f0/d92d20?text=Ga+Ran+1+Mieng',   1, 'ACTIVE'),
+    (N'Gà rán',       N'Gà Rán 3 Miếng',      N'Phần ba miếng gà rán',                  95000., 'https://placehold.co/400x300/fff1f0/d92d20?text=Ga+Ran+3+Mieng',   1, 'ACTIVE'),
+    (N'Khoai tây',    N'Khoai Tây Chiên (M)', N'Khoai tây chiên cỡ vừa',                25000., 'https://placehold.co/400x300/fff1f0/d92d20?text=Khoai+Tay+Chien+M',    1, 'ACTIVE'),
+    (N'Khoai tây',    N'Khoai Tây Chiên (L)', N'Khoai tây chiên cỡ lớn',                35000., 'https://placehold.co/400x300/fff1f0/d92d20?text=Khoai+Tay+Chien+L',    1, 'ACTIVE'),
+    (N'Đồ uống',      N'Pepsi (M)',           N'Nước ngọt có ga',                       15000., 'https://placehold.co/400x300/fff1f0/d92d20?text=Pepsi+M',      1, 'ACTIVE'),
+    (N'Đồ uống',      N'Trà Đào Cam Sả',      N'Trà đào cam sả',                        29000., 'https://placehold.co/400x300/fff1f0/d92d20?text=Tra+Dao+Cam+Sa',    1, 'ACTIVE'),
+    (N'Combo',        N'Combo Burger Solo',   N'Burger bò, khoai tây cỡ vừa và Pepsi',  85000., 'https://placehold.co/400x300/fff1f0/d92d20?text=Combo+Burger+Solo', 1, 'ACTIVE'),
+    (N'Combo',        N'Combo Gia Đình',      N'Ba gà rán, hai khoai lớn và bốn nước', 259000., 'https://placehold.co/400x300/fff1f0/d92d20?text=Combo+Gia+Dinh',   1, 'ACTIVE'),
+    (N'Gà rán',       N'Gà Rán Cay Hàn Quốc', N'Sốt cay kiểu Hàn — tạm hết hàng',       45000., 'https://placehold.co/400x300/fff1f0/d92d20?text=Ga+Ran+Cay+Han+Quoc',     0, 'ACTIVE'),
+    (N'Đồ uống',      N'Nước Cam Ép',         N'Đã ngừng kinh doanh',                   30000., 'https://placehold.co/400x300/fff1f0/d92d20?text=Nuoc+Cam+Ep',     1, 'INACTIVE'),
+    (N'Món theo mùa', N'Bánh Trung Thu',      N'Món theo mùa, ngoài menu thường',       60000., 'https://placehold.co/400x300/fff1f0/d92d20?text=Banh+Trung+Thu',  1, 'ACTIVE')
    ) AS v(category_name, name, description, price, image_url, is_available, status)
 JOIN dbo.Category c ON c.name = v.category_name;
 GO
@@ -672,7 +718,12 @@ GO
                                 thay vì 100%, mới kiểm chứng được công thức
    ------------------------------------------------------------------------------------------ */
 DECLARE @now DATETIME2(0) = SYSDATETIME();
-DECLARE @day VARCHAR(6)   = FORMAT(@now, 'yyMMdd');
+/* CONVERT kiểu 12 cho ra đúng yyMMdd, giống PickupCodeGenerator sinh mã lúc chạy thật.
+   KHÔNG dùng FORMAT: đó là hàm CLR, mà Azure SQL Edge (bản chạy được trên máy Mac dùng chip
+   ARM) không bật CLR. Khi đó FORMAT trả về NULL, @day thành NULL, và vì NULL nối chuỗi vẫn ra
+   NULL nên TOÀN BỘ mã nhận hàng của dữ liệu mẫu biến mất — lặng lẽ, không có lỗi nào báo lên.
+   Hậu quả: không đơn đặt trước nào giao được, vì giao món phải đối chiếu mã. */
+DECLARE @day VARCHAR(6)   = CONVERT(VARCHAR(6), @now, 12);
 
 DECLARE @cus1  INT = (SELECT user_id FROM dbo.Users WHERE email = 'customer1@gmail.com');
 DECLARE @cus2  INT = (SELECT user_id FROM dbo.Users WHERE email = 'customer2@gmail.com');
@@ -879,6 +930,34 @@ VALUES (@o, 'ONLINE_GATEWAY', 124000, 'PAID', DATEADD(MINUTE,-200,@now), DATEADD
 SET @pay = SCOPE_IDENTITY();
 INSERT INTO dbo.PaymentTransaction (payment_id, gateway, external_transaction_id, status, created_at)
 VALUES (@pay, 'MOCK', 'MOCK-TXN-0011', 'SUCCESS', DATEADD(MINUTE,-199,@now));
+
+/* -- Bàn giao món giữa bếp và quầy cho dữ liệu mẫu -----------------------------------------
+   Đặt ở cuối, sau khi mọi đơn đã có đủ món, để viết theo trạng thái đơn thay vì phải nhớ
+   từng mã đơn. Ba mức khác nhau là cố ý — mỗi mức mở ra một thao tác để thử: */
+
+/* Đơn đã giao cho khách thì hiển nhiên đã đi qua cả hai bước. */
+UPDATE oi
+SET    handed_over_at = oi.ready_at, handed_over_by = oi.assigned_to_user_id,
+       received_at    = oi.ready_at, received_by    = @cash1
+FROM   dbo.OrderItem oi
+JOIN   dbo.Orders    o ON o.order_id = oi.order_id
+WHERE  o.order_status = 'COMPLETED';
+
+/* Đơn đang chờ khách tới lấy: bếp đã đưa món ra quầy, quầy chưa xác nhận nhận.
+   Đây là dữ liệu để thử thao tác "nhận món" ở màn hình quầy. */
+UPDATE oi
+SET    handed_over_at = oi.ready_at, handed_over_by = oi.assigned_to_user_id
+FROM   dbo.OrderItem oi
+JOIN   dbo.Orders    o ON o.order_id = oi.order_id
+WHERE  o.order_status = 'READY';
+
+/* Riêng D5 thì quầy đã nhận đủ món, nên thao tác giao cho khách thử được ngay mà không phải
+   bấm nhận trước. Thiếu đơn này thì màn hình giao món không có gì để thử. */
+UPDATE oi
+SET    received_at = oi.ready_at, received_by = @cash1
+FROM   dbo.OrderItem oi
+JOIN   dbo.Orders    o ON o.order_id = oi.order_id
+WHERE  o.idempotency_key = 'demo-0005';
 GO
 
 
@@ -931,7 +1010,29 @@ JOIN    dbo.OrderItem oi ON oi.order_id = o.order_id
 GROUP BY o.order_id, o.total_amount
 HAVING  o.total_amount <> SUM(oi.unit_price * oi.quantity);
 
-/* 8.6 · Giờ của SQL Server — phải khớp giờ máy chạy Tomcat, lệch dưới 5 giây.
+/* 8.6 · Đường đi của món từ bếp ra quầy (BR-25). Dữ liệu mẫu cố ý dựng đủ ba mức để mỗi
+        màn hình đều có việc để thử ngay sau khi cài:
+          "con trong bep"  → bếp bấm được nút bàn giao ở /kitchen/queue
+          "dang cho o quay" → thu ngân bấm được nút nhận ở /staff/counter
+          "quay da nhan"    → giao được cho khách ở /staff/order/detail
+        Kỳ vọng cả ba mức đều KHÁC 0. Mức nào bằng 0 thì màn hình tương ứng mở ra trống trơn. */
+SELECT  CASE WHEN oi.received_at    IS NOT NULL THEN N'quay da nhan'
+             WHEN oi.handed_over_at IS NOT NULL THEN N'dang cho o quay'
+             ELSE                                    N'con trong bep' END AS vi_tri_mon,
+        COUNT(*) AS so_mon
+FROM    dbo.OrderItem oi
+GROUP BY CASE WHEN oi.received_at    IS NOT NULL THEN N'quay da nhan'
+              WHEN oi.handed_over_at IS NOT NULL THEN N'dang cho o quay'
+              ELSE                                   N'con trong bep' END;
+
+/* 8.7 · Không món nào được nhận mà chưa qua bàn giao. CK_OrderItem_handover đã chặn ở tầng
+        dữ liệu, câu này chỉ để nhìn thấy điều đó bằng mắt.
+        Kỳ vọng KHÔNG có dòng nào trả về. */
+SELECT  oi.order_item_id, oi.order_id, oi.handed_over_at, oi.received_at
+FROM    dbo.OrderItem oi
+WHERE   oi.received_at IS NOT NULL AND oi.handed_over_at IS NULL;
+
+/* 8.8 · Giờ của SQL Server — phải khớp giờ máy chạy Tomcat, lệch dưới 5 giây.
         Lệch giờ sẽ khiến đơn được đưa xuống bếp sai thời điểm. */
 SELECT SYSDATETIME() AS gio_sql_server, DB_NAME() AS database_hien_tai;
 GO

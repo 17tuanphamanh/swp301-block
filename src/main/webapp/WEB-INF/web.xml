@@ -8,10 +8,46 @@
     <display-name>Fast Food Pre-order Pickup &amp; POS - V6</display-name>
 
     <!--
-      Servlet/Filter được khai báo bằng annotation (@WebServlet, @WebFilter) trong package
-      com.fastfood.controller và com.fastfood.filter. web.xml chỉ giữ cấu hình toàn cục.
+      Servlet được khai báo bằng annotation (@WebServlet) trong com.fastfood.controller.
       Bảng URL mapping đầy đủ: xem docs/STRUCTURE.md mục 5.
     -->
+
+    <!--
+      ===== Bộ lọc: khai báo ở đây chứ KHÔNG dùng @WebFilter =====
+      Thứ tự chạy của bộ lọc khai báo bằng annotation là không xác định theo đặc tả Servlet;
+      đặt tên "01-", "02-" chỉ là quy ước chứ máy chủ không bắt buộc phải theo. Trong khi đó
+      thứ tự này lại quan trọng: EncodingFilter phải chạy trước, vì bảng mã bị chốt ngay khi
+      có ai đó đọc tham số đầu tiên — chốt sai thì tên tiếng Việt gửi lên thành ký tự lỗi.
+      Thứ tự các thẻ filter-mapping trong web.xml thì được đặc tả bảo đảm.
+    -->
+    <filter>
+        <filter-name>01-EncodingFilter</filter-name>
+        <filter-class>com.fastfood.filter.EncodingFilter</filter-class>
+    </filter>
+    <filter>
+        <filter-name>02-AuthenticationFilter</filter-name>
+        <filter-class>com.fastfood.filter.AuthenticationFilter</filter-class>
+    </filter>
+    <filter>
+        <filter-name>03-RoleAuthorizationFilter</filter-name>
+        <filter-class>com.fastfood.filter.RoleAuthorizationFilter</filter-class>
+    </filter>
+
+    <filter-mapping>
+        <filter-name>01-EncodingFilter</filter-name>
+        <url-pattern>/*</url-pattern>
+    </filter-mapping>
+    <filter-mapping>
+        <filter-name>02-AuthenticationFilter</filter-name>
+        <url-pattern>/*</url-pattern>
+    </filter-mapping>
+    <filter-mapping>
+        <filter-name>03-RoleAuthorizationFilter</filter-name>
+        <url-pattern>/staff/*</url-pattern>
+        <url-pattern>/kitchen/*</url-pattern>
+        <url-pattern>/admin/*</url-pattern>
+        <url-pattern>/api/kds/*</url-pattern>
+    </filter-mapping>
 
     <!-- ===== Listener: khởi tạo DB pool + Scheduler (UC-07, BR-13) ===== -->
     <listener>
@@ -61,6 +97,19 @@
             <!-- .jspf để không tự include chính nó qua pattern *.jsp -->
             <include-prelude>/WEB-INF/views/layout/taglib.jspf</include-prelude>
         </jsp-property-group>
+
+        <!--
+          Bảng mã của các mảnh .jspf KHÔNG khai báo được ở đây. Đã thử thêm một
+          jsp-property-group cho *.jspf và Jasper bỏ qua: nhóm thuộc tính chỉ áp dụng cho
+          trang được yêu cầu trực tiếp, còn tệp ghép vào lúc dịch thì không.
+
+          Thiếu bảng mã thì Jasper đọc mảnh theo ISO-8859-1 (mặc định của đặc tả JSP) và
+          chữ tiếng Việt trong đó ra màn hình thành "Thá»±c ÄÆ¡n", trong khi chữ nằm ở tệp
+          .jsp vẫn đúng — cùng một trang chỗ đúng chỗ sai nên rất dễ bỏ sót.
+
+          Cách chạy được: mỗi tệp .jspf tự khai báo <%@ page pageEncoding="UTF-8" %> ở dòng
+          đầu tiên. Thêm mảnh .jspf mới thì nhớ thêm dòng đó.
+        -->
     </jsp-config>
 
 </web-app>

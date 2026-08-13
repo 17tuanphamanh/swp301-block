@@ -1,16 +1,34 @@
 <c:set var="pageTitle" value="Đơn #${order.orderId}" /><c:set var="nav" value="orders" />
-<!DOCTYPE html>
-<html lang="vi">
-<head><jsp:include page="/WEB-INF/views/layout/head.jsp"/></head>
-<body>
-<jsp:include page="/WEB-INF/views/layout/header.jsp"/>
+<%@ include file="/WEB-INF/views/layout/page-start.jspf" %>
+  <%-- Hoá đơn không còn là trang riêng: bấm in ngay tại đây, khối hoá đơn nằm cuối trang và
+       chỉ hiện ra trên giấy. Trước đây phải mở thêm một trang nữa chỉ để bấm đúng một nút. --%>
+  <div class="row-between mb no-print">
+    <p class="small"><a href="${ctx}/staff/orders">← Danh sách đơn hàng</a></p>
+    <button type="button" class="btn touch" data-print>In hoá đơn</button>
+  </div>
 
-<main class="container">
-  <p class="small mb"><a href="${ctx}/staff/orders">← Danh sách đơn hàng</a></p>
+  <div class="no-print">
+    <%@ include file="/WEB-INF/views/layout/flash.jspf" %>
+  </div>
 
-  <jsp:include page="/WEB-INF/views/layout/flash.jsp"/>
+  <c:if test="${not empty openIssues}">
+    <div class="alert alert-warn no-print">
+      <strong>Bếp báo sự cố với đơn này.</strong> Đơn sẽ không tự chuyển sang sẵn sàng cho tới
+      khi bếp xử lý xong. Liên hệ khách để đổi món hoặc chờ thêm; nếu khách không đồng ý thì
+      huỷ đơn ở khung bên phải.
+      <ul class="mt">
+        <c:forEach var="i" items="${openIssues}">
+          <li>
+            <c:out value="${i.productName}"/> — ${ff:issueType(i.issueType)}
+            <c:if test="${not empty i.description}">: <c:out value="${i.description}"/></c:if>
+            <span class="small muted">(<c:out value="${i.createdByName}"/>, ${ff:time(i.createdAt)})</span>
+          </li>
+        </c:forEach>
+      </ul>
+    </div>
+  </c:if>
 
-  <div class="grid grid-side">
+  <div class="grid grid-side no-print">
     <div>
       <div class="card">
         <div class="row-between mb">
@@ -26,7 +44,7 @@
         <div class="grid grid-2">
           <div>
             <div class="total-line"><span class="muted">Khách hàng</span>
-              <span>${empty order.customerName ? 'Khách tại quầy' : order.customerName}</span></div>
+              <span><c:out value="${empty order.customerName ? 'Khách tại quầy' : order.customerName}"/></span></div>
             <c:if test="${order.online}">
               <div class="total-line"><span class="muted">Giờ hẹn</span>
                 <span><strong>${ff:dateTime(order.pickupTime)}</strong></span></div>
@@ -43,7 +61,7 @@
             </c:if>
             <c:if test="${not empty order.pickedUpAt}">
               <div class="total-line"><span class="muted">Giao lúc</span><span>${ff:dateTime(order.pickedUpAt)}</span></div>
-              <div class="total-line"><span class="muted">Người giao</span><span>${order.handoffByName}</span></div>
+              <div class="total-line"><span class="muted">Người giao</span><span><c:out value="${order.handoffByName}"/></span></div>
             </c:if>
             <div class="total-line grand"><span>Tổng tiền</span><span>${ff:money(order.totalAmount)}</span></div>
           </div>
@@ -53,12 +71,13 @@
       <div class="card pad0 table-wrap">
         <div class="card-head"><h2>Món trong đơn</h2></div>
         <table>
-          <thead><tr><th>Món</th><th class="center">SL</th><th class="num">Đơn giá</th>
-                     <th class="num">Thành tiền</th><th>Bếp</th><th>Người làm</th></tr></thead>
+          <thead><tr><th scope="col">Món</th><th scope="col" class="center">SL</th><th scope="col" class="num">Đơn giá</th>
+                     <th scope="col" class="num">Thành tiền</th><th scope="col">Bếp</th><th scope="col">Tại quầy</th>
+                     <th scope="col">Người làm</th></tr></thead>
           <tbody>
             <c:forEach var="item" items="${order.items}">
               <tr>
-                <td>${item.productNameSnapshot}
+                <td><c:out value="${item.productNameSnapshot}"/>
                   <c:if test="${item.openIssueCount > 0}">
                     <span class="tag tag-red">${item.openIssueCount} sự cố</span>
                   </c:if>
@@ -67,7 +86,22 @@
                 <td class="num">${ff:money(item.unitPrice)}</td>
                 <td class="num">${ff:money(item.lineTotal)}</td>
                 <td><span class="${ff:itemStatusClass(item.itemStatus)}">${ff:itemStatus(item.itemStatus)}</span></td>
-                <td class="small muted">${empty item.assignedToName ? '—' : item.assignedToName}</td>
+                <%-- Ba mức của chặng bàn giao. Cột này trả lời câu thu ngân hay phải hỏi bếp:
+                     món đã ra tới quầy chưa, hay vẫn còn trong bếp. --%>
+                <td class="small">
+                  <c:choose>
+                    <c:when test="${item.received}">
+                      <span class="tag tag-green">Đã nhận</span>
+                      <div class="muted">${ff:time(item.receivedAt)}</div>
+                    </c:when>
+                    <c:when test="${item.handedOver}">
+                      <span class="tag tag-amber">Chờ quầy nhận</span>
+                      <div class="muted">${ff:time(item.handedOverAt)}</div>
+                    </c:when>
+                    <c:otherwise><span class="muted">Còn trong bếp</span></c:otherwise>
+                  </c:choose>
+                </td>
+                <td class="small muted"><c:out value="${empty item.assignedToName ? '—' : item.assignedToName}"/></td>
               </tr>
             </c:forEach>
           </tbody>
@@ -77,8 +111,8 @@
       <div class="card pad0 table-wrap">
         <div class="card-head"><h2>Thanh toán</h2></div>
         <table>
-          <thead><tr><th class="center">Lần</th><th>Phương thức</th><th class="num">Số tiền</th>
-                     <th>Trạng thái</th><th>Thời điểm</th></tr></thead>
+          <thead><tr><th scope="col" class="center">Lần</th><th scope="col">Phương thức</th><th scope="col" class="num">Số tiền</th>
+                     <th scope="col">Trạng thái</th><th scope="col">Thời điểm</th></tr></thead>
           <tbody>
             <c:forEach var="p" items="${payments}">
               <tr>
@@ -101,15 +135,15 @@
       <div class="card pad0 table-wrap">
         <div class="card-head"><h2>Nhật ký thao tác</h2></div>
         <table>
-          <thead><tr><th>Thời điểm</th><th>Thao tác</th><th>Người thực hiện</th><th>Thay đổi</th></tr></thead>
+          <thead><tr><th scope="col">Thời điểm</th><th scope="col">Thao tác</th><th scope="col">Người thực hiện</th><th scope="col">Thay đổi</th></tr></thead>
           <tbody>
             <c:forEach var="log" items="${auditLogs}">
               <tr>
                 <td class="small muted">${ff:dateTime(log.createdAt)}</td>
                 <td>${ff:auditAction(log.action)}</td>
-                <td class="small">${log.actorDisplay}</td>
+                <td class="small"><c:out value="${log.actorDisplay}"/></td>
                 <td class="small muted">
-                  <c:if test="${not empty log.oldValue}">${log.oldValue} → </c:if>${log.newValue}
+                  <c:if test="${not empty log.oldValue}"><c:out value="${log.oldValue}"/> → </c:if><c:out value="${log.newValue}"/>
                 </td>
               </tr>
             </c:forEach>
@@ -132,11 +166,10 @@
                 <input type="hidden" name="action" value="handoff">
                 <div class="field">
                   <label for="pickupCode">Mã nhận hàng</label>
-                  <input type="text" id="pickupCode" name="pickupCode" class="mono"
-                         placeholder="VD: 260813A1C7" required autofocus
-                         style="text-transform:uppercase; letter-spacing:0.1em;">
+                  <input type="text" id="pickupCode" name="pickupCode" class="mono code-input"
+                         placeholder="VD: 260813A1C7" required autofocus>
                 </div>
-                <button type="submit" class="btn btn-green btn-block">Xác minh và giao món</button>
+                <button type="submit" class="btn btn-green btn-block touch">Xác minh và giao món</button>
               </form>
             </c:when>
             <c:otherwise>
@@ -144,35 +177,62 @@
               <form method="post" action="${ctx}/staff/order/detail">
                 <input type="hidden" name="orderId" value="${order.orderId}">
                 <input type="hidden" name="action" value="handoff">
-                <button type="submit" class="btn btn-green btn-block">Đã giao món</button>
+                <button type="submit" class="btn btn-green btn-block touch">Đã giao món</button>
               </form>
             </c:otherwise>
           </c:choose>
         </div>
       </c:if>
 
-      <c:if test="${order.cancellable}">
+      <c:if test="${order.staffCancellable}">
         <div class="card">
-          <h2>Huỷ đơn</h2>
-          <p class="small muted mb">Bếp chưa nhận việc nên còn huỷ được. Tiền sẽ được hoàn đầy đủ.</p>
+          <h2>Huỷ đơn &amp; hoàn tiền</h2>
+          <p class="small muted mb">
+            <c:choose>
+              <c:when test="${order.orderStatus eq 'READY'}">
+                Món đã làm xong nhưng khách không tới lấy. Huỷ để đóng đơn và trả lại tiền.
+              </c:when>
+              <c:when test="${order.orderStatus eq 'PREPARING'}">
+                Bếp đang làm dở. Chỉ huỷ khi đã thống nhất với khách — nguyên liệu đã dùng rồi.
+              </c:when>
+              <c:otherwise>
+                Huỷ đơn và hoàn lại toàn bộ tiền nếu khách đã thanh toán. Không có hoàn một phần.
+              </c:otherwise>
+            </c:choose>
+          </p>
           <form method="post" action="${ctx}/staff/order/detail"
-                onsubmit="return confirm('Huỷ đơn #${order.orderId}?');">
+                data-confirm="Huỷ đơn #${order.orderId} và hoàn tiền cho khách?">
             <input type="hidden" name="orderId" value="${order.orderId}">
             <input type="hidden" name="action" value="cancel">
-            <button type="submit" class="btn btn-danger btn-block">Huỷ đơn</button>
+            <div class="field">
+              <label for="reason">Lý do huỷ</label>
+              <input type="text" id="reason" name="reason" maxlength="200" required
+                     placeholder="VD: khách không tới lấy, bếp hết nguyên liệu">
+            </div>
+            <button type="submit" class="btn btn-danger btn-block">
+              Huỷ đơn<c:if test="${not empty order.latestPayment
+                                   and order.latestPayment.paymentStatus eq 'PAID'}"> &amp; hoàn ${ff:money(order.totalAmount)}</c:if>
+            </button>
           </form>
         </div>
       </c:if>
 
-      <c:if test="${order.orderStatus ne 'COMPLETED' and not empty order.latestPayment
-                    and order.latestPayment.paymentStatus eq 'PAID'}">
+      <c:if test="${order.refundPending}">
         <div class="card">
-          <h2>Hoàn tiền</h2>
-          <p class="small muted mb">Hoàn toàn bộ số tiền của đơn. Không có hoàn một phần.</p>
+          <h2>Hoàn tiền sót</h2>
+          <p class="small muted mb">
+            Đơn đã đóng nhưng khoản thanh toán vẫn chưa được hoàn. Bình thường huỷ đơn đã tự
+            hoàn tiền kèm theo, nên nếu thấy ô này thì có một lần hoàn trước đó không thành công.
+          </p>
           <form method="post" action="${ctx}/staff/order/detail"
-                onsubmit="return confirm('Hoàn tiền cho đơn #${order.orderId}?');">
+                data-confirm="Hoàn tiền cho đơn #${order.orderId}?">
             <input type="hidden" name="orderId" value="${order.orderId}">
             <input type="hidden" name="action" value="refund">
+            <div class="field">
+              <label for="refundReason">Lý do hoàn tiền</label>
+              <input type="text" id="refundReason" name="refundReason" required maxlength="200"
+                     placeholder="VD: lần hoàn lúc huỷ đơn bị lỗi kết nối">
+            </div>
             <button type="submit" class="btn btn-danger btn-block">
               Hoàn ${ff:money(order.totalAmount)}
             </button>
@@ -183,13 +243,72 @@
       <c:if test="${not empty order.pickupCode}">
         <div class="card">
           <h3>Mã nhận hàng của đơn</h3>
-          <div class="pickup-code">${order.pickupCode}</div>
+          <div class="pickup-code"><c:out value="${order.pickupCode}"/></div>
         </div>
       </c:if>
     </div>
   </div>
-</main>
 
-<jsp:include page="/WEB-INF/views/layout/footer.jsp"/>
-</body>
-</html>
+  <%-- Hoá đơn: ẩn trên màn hình, chỉ hiện khi in. Khổ giấy và bảng màu do khối @media print
+       trong main.css lo — cùng một khối đang dùng cho mọi trang có nút in. --%>
+  <div class="card receipt print-only">
+    <div class="receipt-head">
+      <div class="receipt-shop">FAST FOOD</div>
+      <div class="small muted">Đặt trước &amp; bán tại quầy</div>
+    </div>
+
+    <div class="receipt-meta small">
+      <div class="total-line"><span>Số hoá đơn</span><span>#${order.orderId}</span></div>
+      <div class="total-line"><span>Thời điểm</span><span>${ff:dateTime(order.createdAt)}</span></div>
+      <div class="total-line"><span>Hình thức</span><span>${ff:orderSource(order.orderSource)}</span></div>
+      <c:if test="${order.online}">
+        <div class="total-line"><span>Giờ hẹn lấy</span><span>${ff:dateTime(order.pickupTime)}</span></div>
+      </c:if>
+      <div class="total-line">
+        <span>Khách hàng</span>
+        <span><c:out value="${empty order.customerName ? 'Khách tại quầy' : order.customerName}"/></span>
+      </div>
+    </div>
+
+    <table class="receipt-items">
+      <thead>
+        <tr><th scope="col">Món</th><th scope="col" class="center">SL</th><th scope="col" class="num">Thành tiền</th></tr>
+      </thead>
+      <tbody>
+        <c:forEach var="item" items="${order.items}">
+          <tr>
+            <td>
+              <c:out value="${item.productNameSnapshot}"/>
+              <div class="small muted">${ff:money(item.unitPrice)}</div>
+            </td>
+            <td class="center">${item.quantity}</td>
+            <td class="num">${ff:money(item.lineTotal)}</td>
+          </tr>
+        </c:forEach>
+      </tbody>
+    </table>
+
+    <div class="total-line grand"><span>Tổng cộng</span><span>${ff:money(order.totalAmount)}</span></div>
+
+    <div class="receipt-meta small mt">
+      <c:forEach var="p" items="${payments}">
+        <div class="total-line">
+          <span>${ff:paymentMethod(p.method)}</span>
+          <span>${ff:paymentStatus(p.paymentStatus)} · ${ff:money(p.amount)}</span>
+        </div>
+      </c:forEach>
+      <c:if test="${empty payments}">
+        <div class="total-line"><span>Thanh toán</span><span>Chưa ghi nhận</span></div>
+      </c:if>
+    </div>
+
+    <c:if test="${not empty order.pickupCode}">
+      <div class="mt">
+        <div class="small muted center">Mã nhận hàng</div>
+        <div class="pickup-code"><c:out value="${order.pickupCode}"/></div>
+      </div>
+    </c:if>
+
+    <p class="small muted center mt">Cảm ơn quý khách. Hẹn gặp lại!</p>
+  </div>
+<%@ include file="/WEB-INF/views/layout/page-end.jspf" %>

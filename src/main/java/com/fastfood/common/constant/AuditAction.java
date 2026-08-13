@@ -23,12 +23,30 @@ public final class AuditAction {
 
     // Kitchen / KDS
     public static final String KDS_RELEASE       = "KDS_RELEASE";        // BR-09, ghi 1 lần
-    public static final String ITEM_CLAIM        = "ITEM_CLAIM";
+    /**
+     * Nhận việc và bắt đầu làm là một thao tác, không phải hai: trạng thái món chỉ có
+     * WAITING -> PREPARING -> READY, không có bậc trung gian "đã nhận nhưng chưa làm".
+     * Vì vậy không có hằng số ITEM_CLAIM riêng.
+     */
     public static final String ITEM_START        = "ITEM_START";
     public static final String ITEM_READY        = "ITEM_READY";
+    /**
+     * Bàn giao món từ bếp ra quầy, và quầy xác nhận đã cầm. Hai mã riêng vì hai người khác
+     * nhau thực hiện; gộp một mã thì nhật ký không còn trả lời được câu hỏi hay gặp nhất khi
+     * mất món: bếp đã đưa ra chưa, hay quầy chưa nhận.
+     */
+    public static final String ITEM_HANDED_OVER  = "ITEM_HANDED_OVER";
+    public static final String ITEM_RECEIVED     = "ITEM_RECEIVED";
     public static final String ORDER_READY       = "ORDER_READY";   // cả đơn đã sẵn sàng
     public static final String ISSUE_OPENED      = "ISSUE_OPENED";
     public static final String ISSUE_RESOLVED    = "ISSUE_RESOLVED";
+    public static final String ISSUE_UPDATED     = "ISSUE_UPDATED";
+    /**
+     * Sự cố báo nhầm, người báo tự thu hồi. Khác hẳn ISSUE_RESOLVED về ý nghĩa: một bên là
+     * "đã xử lý xong", bên kia là "chưa từng có chuyện đó". Gộp chung một mã thì số liệu sự
+     * cố của bếp phồng lên vì cả những lần bấm nhầm.
+     */
+    public static final String ISSUE_CANCELLED   = "ISSUE_CANCELLED";
 
     // Pickup
     public static final String PICKUP_VERIFY_OK     = "PICKUP_VERIFY_OK";     // BR-15

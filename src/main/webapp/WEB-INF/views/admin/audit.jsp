@@ -1,17 +1,11 @@
 <c:set var="pageTitle" value="Nhật ký" /><c:set var="nav" value="audit" />
-<!DOCTYPE html>
-<html lang="vi">
-<head><jsp:include page="/WEB-INF/views/layout/head.jsp"/></head>
-<body>
-<jsp:include page="/WEB-INF/views/layout/header.jsp"/>
-
-<main class="container">
+<%@ include file="/WEB-INF/views/layout/page-start.jspf" %>
   <div class="page-head">
     <h1>Nhật ký thao tác</h1>
     <p>Mọi việc liên quan tới tiền và trạng thái đơn đều để lại dấu vết ở đây.</p>
   </div>
 
-  <jsp:include page="/WEB-INF/views/layout/flash.jsp"/>
+  <%@ include file="/WEB-INF/views/layout/flash.jspf" %>
 
   <div class="card">
     <form method="get" action="${ctx}/admin/audit" class="form-row">
@@ -35,11 +29,11 @@
       </div>
       <div class="field">
         <label for="from">Từ</label>
-        <input type="datetime-local" id="from" name="from" value="${param.from}">
+        <input type="datetime-local" id="from" name="from" value="<c:out value="${param.from}"/>">
       </div>
       <div class="field">
         <label for="to">Đến</label>
-        <input type="datetime-local" id="to" name="to" value="${param.to}">
+        <input type="datetime-local" id="to" name="to" value="<c:out value="${param.to}"/>">
       </div>
       <button type="submit" class="btn btn-primary">Lọc</button>
       <a class="btn" href="${ctx}/admin/audit">Bỏ lọc</a>
@@ -47,40 +41,37 @@
   </div>
 
   <div class="card pad0 table-wrap">
-    <div class="card-head"><h2>Bản ghi (${fn:length(logs)})</h2></div>
+    <div class="card-head"><h2>Bản ghi</h2></div>
     <table>
       <thead>
-        <tr><th>Thời điểm</th><th>Đối tượng</th><th>Mã</th><th>Thao tác</th>
-            <th>Người thực hiện</th><th>Thay đổi</th></tr>
+        <tr><th scope="col">Thời điểm</th><th scope="col">Đối tượng</th><th scope="col">Mã</th><th scope="col">Thao tác</th>
+            <th scope="col">Người thực hiện</th><th scope="col">Thay đổi</th></tr>
       </thead>
       <tbody>
-        <c:forEach var="log" items="${logs}">
+        <c:forEach var="log" items="${pageData.items}">
           <tr>
             <td class="small muted">${ff:dateTime(log.createdAt)}</td>
-            <td class="small">${log.entityType}</td>
+            <td class="small"><c:out value="${log.entityType}"/></td>
             <td class="small">
               <c:choose>
                 <c:when test="${log.entityType eq 'ORDER'}">
-                  <a href="${ctx}/staff/order/detail?orderId=${log.entityId}">#${log.entityId}</a>
+                  <a href="${ctx}/staff/order/detail?orderId=<c:out value="${log.entityId}"/>">#<c:out value="${log.entityId}"/></a>
                 </c:when>
-                <c:otherwise>${log.entityId}</c:otherwise>
+                <c:otherwise><c:out value="${log.entityId}"/></c:otherwise>
               </c:choose>
             </td>
             <td>${ff:auditAction(log.action)}</td>
-            <td class="small">${log.actorDisplay}</td>
+            <td class="small"><c:out value="${log.actorDisplay}"/></td>
             <td class="small muted">
-              <c:if test="${not empty log.oldValue}">${log.oldValue} → </c:if>${log.newValue}
+              <c:if test="${not empty log.oldValue}"><c:out value="${log.oldValue}"/> → </c:if><c:out value="${log.newValue}"/>
             </td>
           </tr>
         </c:forEach>
-        <c:if test="${empty logs}">
-          <tr><td colspan="6" class="center muted" style="padding:26px;">Không có bản ghi nào khớp bộ lọc.</td></tr>
+        <c:if test="${pageData.emptyPage}">
+          <tr><td colspan="6" class="center muted cell-empty">Không có bản ghi nào khớp bộ lọc.</td></tr>
         </c:if>
       </tbody>
     </table>
+    <%@ include file="/WEB-INF/views/layout/pager.jspf" %>
   </div>
-</main>
-
-<jsp:include page="/WEB-INF/views/layout/footer.jsp"/>
-</body>
-</html>
+<%@ include file="/WEB-INF/views/layout/page-end.jspf" %>

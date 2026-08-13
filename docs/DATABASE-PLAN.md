@@ -115,8 +115,13 @@ MVP: **1 User = 1 Role** → không có bảng `UserRole` trung gian.
 | `password_hash` | VARCHAR(255) | NOT NULL | **bcrypt** (NFR-01). Độ dài 255 để đổi thuật toán sau này |
 | `role_id` | INT | NOT NULL, FK→Role | |
 | `status` | VARCHAR(20) | NOT NULL, DEF `'ACTIVE'` | ACTIVE / LOCKED. ADM-04 dùng "Lock", **không delete** |
+| `must_change_password` | BIT | NOT NULL, DEF `0` | **BR-23**. Admin reset password hộ → bật cờ; user tự đổi → tắt cờ |
 | `created_at` | DATETIME2(0) | NOT NULL | |
 | `updated_at` | DATETIME2(0) | NULL | |
+
+`must_change_password` được enforce ở `AuthenticationFilter`, không ở từng servlet: chỉ cần
+sót một màn hình là rào chắn mất tác dụng. Hai đường duy nhất còn mở là `/profile` và
+`/logout` — thiếu `/logout` thì người dùng bị kẹt hẳn, không đổi được mà cũng không thoát ra được.
 
 ### B3. `Category` / B4. `Product`
 
@@ -173,6 +178,7 @@ Tách 2 cột `is_available` và `status` là cố ý: `status` = còn bán trê
 | `CK_Orders_status` | ∈ 7 giá trị | Trạng thái tự chế |
 | `CK_Orders_pendingOnlineOnly` | `status<>'PENDING_PAYMENT' OR source='ONLINE_PREORDER'` | POS lọt vào PENDING_PAYMENT — POS không có trạng thái này (mục 7.1) |
 | `CK_Orders_pickupTime` | Online ⇒ `pickup_time IS NOT NULL`; POS ⇒ `pickup_time IS NULL` | Online thiếu giờ hẹn / POS bị gán nhầm giờ hẹn |
+| `CK_Orders_onlineCustomer` | `order_source <> 'ONLINE_PREORDER' OR customer_id IS NOT NULL` | Đơn Online mồ côi: không tra được lịch sử, không gửi được notification, không check được ownership (BR-21) |
 
 **Ba trường "3 mốc thời gian" phải hiểu đúng — đây là lõi của V6:**
 
@@ -198,10 +204,54 @@ Chênh lệch `released_to_kds_at − kitchen_release_at` chính là thước đ
 | `item_status` | VARCHAR(20) DEF `'WAITING'` | CHECK ∈ {WAITING, PREPARING, READY} |
 | `assigned_to_user_id` | INT NULL FK→Users | Kitchen claim (UC-11) |
 | `started_at`, `ready_at` | DATETIME2(0) NULL | |
+| `handed_over_at` | DATETIME2(0) NULL | **BR-25**. Bếp đặt món lên quầy (UC-12a) |
+| `handed_over_by` | INT NULL FK→Users | Ghi được ai đưa ra, để đối chiếu khi thiếu món |
+| `received_at` | DATETIME2(0) NULL | **BR-25**. Thu ngân cầm món (UC-12b) |
+| `received_by` | INT NULL FK→Users | |
+| `CK_OrderItem_handover` | CHECK | `received_at IS NULL OR handed_over_at IS NOT NULL` |
 
 **Vì sao vừa có FK `product_id` vừa có snapshot:** FK phục vụ báo cáo best-seller (gom theo sản phẩm); snapshot phục vụ tính toàn vẹn lịch sử khi Admin đổi tên/giá (BR-02). Thiếu snapshot → hóa đơn cũ đổi giá theo. Thiếu FK → không gom nhóm được báo cáo.
 
 **BR-18** (chỉ READY khi toàn bộ quantity xong): **không** tách thành nhiều dòng theo từng cái. Một `OrderItem` là một task nguyên khối trên KDS — không có trạng thái "xong 2/3". Không cần cột thêm.
+
+#### Vì sao bàn giao là bốn cột chứ không phải hai bậc của `item_status`
+
+Cách rẻ nhất trông có vẻ là nối dài chuỗi trạng thái:
+
+```
+WAITING → PREPARING → READY → HANDED_OVER → RECEIVED     ← KHÔNG chọn
+```
+
+Nó hỏng ở chỗ **đổi nghĩa của `READY`**. Hàng chục chỗ trong mã nguồn đang đếm "món chưa xong"
+bằng `item_status <> 'READY'`: tổng hợp trạng thái đơn (BR-11), chỉ số đúng hẹn, màn hình lịch
+sử bếp, điều kiện cho phép hủy (BR-12). Thêm hai bậc thì mọi câu đó phải sửa thành
+`item_status NOT IN ('READY','HANDED_OVER','RECEIVED')` — sửa nhiều chỗ mà **nghĩa không hề đổi**,
+và chỉ cần sót một chỗ là đơn đã nấu xong bị đếm nhầm thành chưa xong.
+
+Bốn cột timestamp giữ `READY` nguyên nghĩa "bếp đã nấu xong", và mô tả một **trục song song**:
+món ở đâu về mặt vật lý.
+
+```
+item_status : WAITING ──→ PREPARING ──→ READY ─────────────────────→ READY
+vị trí món  : trong bếp    trong bếp     trong bếp → trên quầy → tay thu ngân
+cột         :                            (handed_over_at)  (received_at)
+```
+
+Chọn timestamp thay vì cờ BIT vì **khoảng giữa hai mốc mới là thứ đáng nhìn**: món nằm chờ trên
+quầy bao lâu. Cờ `is_handed_over` trả lời được "đã đưa chưa" nhưng không trả lời được "đưa từ bao
+giờ", mà đó mới là câu hỏi khi khách phàn nàn món nguội.
+
+Ràng buộc `CK_OrderItem_handover` chặn thứ tự ngược ngay ở tầng dữ liệu — nhận món chưa được bàn
+giao là chuyện vô nghĩa, và chặn ở đây thì kể cả sửa thẳng bằng câu lệnh SQL cũng không lọt.
+Chiều còn lại **cố ý không chặn**: bếp bàn giao mà quầy chưa nhận là trạng thái bình thường, chính
+là hàng chờ của màn hình `/staff/counter`.
+
+**Bất đối xứng về người thực hiện** — hai vế ràng buộc khác nhau, và đó là chủ ý:
+
+| Vế | Ai làm được | Vì sao |
+|---|---|---|
+| `handed_over_at` | **Chỉ** người có `assigned_to_user_id` | Người nấu món mới biết món nào là món của đơn nào; ai cũng bàn giao được thì mất luôn dấu vết trách nhiệm |
+| `received_at` | **Bất kỳ** Cashier nào | Quầy đổi ca giữa chừng, và người cầm món không nhất thiết là người sẽ giao cho khách |
 
 ### B9. `Payment`
 
@@ -232,6 +282,17 @@ Chênh lệch `released_to_kds_at − kitchen_release_at` chính là thước đ
 | `created_at` | DATETIME2(0) | |
 
 `UNIQUE` trên `external_transaction_id` là cơ chế chặn **duplicate revenue** ở mức thấp nhất: callback lặp → INSERT lỗi 2627 → bỏ qua. Không dựa vào `SELECT` kiểm tra trước rồi mới `INSERT` (vẫn race).
+
+**Bảng này phục vụ hai nguồn tiền, không phải một** (BR-22):
+
+| `gateway` | Nguồn | `external_transaction_id` đến từ đâu |
+|---|---|---|
+| `MOCK` (hoặc tên cổng thật) | Online Pre-order | Callback của cổng thanh toán |
+| `POS_TERMINAL` | POS thu bằng thẻ/QR | Cashier gõ lại mã in trên biên lai máy thanh toán |
+
+Không tách thành hai bảng, vì cả hai trả lời đúng một câu hỏi: *khoản tiền này đối chiếu với sao kê bằng mã nào?* Gộp lại thì báo cáo đối soát chỉ đọc một nơi, và `UNIQUE` bảo vệ cả hai đường như nhau — một biên lai POS không lập được thành hai đơn, đúng như một callback không ghi nhận được hai lần.
+
+POS thu **tiền mặt** thì không có dòng nào ở đây: không có bên thứ ba nào để đối chiếu.
 
 ### B11–B13. `Notification`, `KitchenIssue`, `AuditLog`
 
@@ -369,9 +430,11 @@ COMMIT;
 | `IX_Orders_status_source(order_status, order_source, pickup_time)` | Dashboard STF-02 (4 tab) | |
 | `IX_Orders_customer(customer_id, created_at DESC)` | Lịch sử CUS-05 | Kèm BR-21 lọc ownership |
 | `IX_OrderItem_order(order_id)` | Chi tiết đơn + aggregate | Chạy mỗi lần đổi item status |
-| `IX_OrderItem_kds(item_status, assigned_to_user_id)` | KIT-01 / KIT-02 | **Poll mỗi 2 giây** (NFR-04) |
+| `IX_OrderItem_kds(item_status, assigned_to_user_id)` | KIT-01 | **Poll mỗi 2 giây** (NFR-04) |
+| `IX_OrderItem_counter(handed_over_at, order_item_id) WHERE received_at IS NULL` | STF-04 + huy hiệu đếm trên thanh điều hướng | Cùng nguyên tắc lọc như `IX_Orders_release`: index chỉ chứa món đang thật sự nằm chờ trên quầy nên không lớn lên theo số món đã bán. Đáng có index riêng vì con số này chạy ở **mọi** trang thu ngân, không riêng STF-04 |
 | `IX_Payment_order(order_id, payment_status)` | Kiểm tra PAID trước handoff | BR-15 |
-| `IX_Payment_paidAt(paid_at)` | Net Revenue | Quét theo khoảng ngày |
+| `IX_Payment_paidAt(paid_at)` | Net Revenue — vế thu | Quét theo khoảng ngày |
+| `IX_Payment_refundedAt(refunded_at) WHERE refunded_at IS NOT NULL` | Net Revenue — vế hoàn | Hai vế quét theo **hai mốc khác nhau** nên cần hai index; filtered vì hoàn tiền là thiểu số |
 | `IX_Audit_entity(entity_type, entity_id, created_at DESC)` | STF-05 / ADM-05 | |
 
 **Nguyên tắc:** không tạo index "cho chắc". Mỗi index làm chậm INSERT/UPDATE — mà `Orders`/`OrderItem` là hai bảng bị ghi nhiều nhất.
@@ -380,7 +443,7 @@ COMMIT;
 
 | Metric | Nguồn | Lưu ý |
 |---|---|---|
-| Net Revenue | `SUM(amount)` where `PAID` − where `REFUNDED` | Lọc theo `paid_at` |
+| Net Revenue | `SUM(amount WHERE paid_at ∈ kỳ)` − `SUM(amount WHERE refunded_at ∈ kỳ)` | **Hai mốc khác nhau.** Xem cảnh báo ngay dưới bảng |
 | Order Count by Channel | `COUNT` group by `order_source` | Lọc `created_at` |
 | Completed Sales | `SUM(total_amount)` where `COMPLETED` | Loại `CANCELLED`/`REFUNDED`; lọc `completed_at` |
 | Best-selling Product | `SUM(oi.quantity)` join Order COMPLETED | Group theo `product_id` (không theo snapshot name) |
@@ -388,6 +451,29 @@ COMMIT;
 | Average Preparation Lead | `AVG(prep_lead_minutes)` | Chỉ đơn scheduled đã completed |
 | Overdue Pickup Count | `vw_OrderReleaseState WHERE is_overdue=1` | BR-17 |
 | Payment Summary | Group `method` × `payment_status` | |
+
+**Cái bẫy của Net Revenue — đọc kỹ trước khi viết câu SQL.**
+
+`Payment` chỉ có **một** cột trạng thái, và hoàn tiền **ghi đè** `PAID` thành `REFUNDED`.
+Cách viết trông hợp lý nhất lại sai:
+
+```sql
+-- SAI: một khoản đã thu rồi hoàn ra âm thay vì ra 0
+SUM(CASE WHEN payment_status = 'PAID'     THEN amount ELSE 0 END)
+  - SUM(CASE WHEN payment_status = 'REFUNDED' THEN amount ELSE 0 END)
+```
+
+Đơn 100.000đ thu rồi hoàn: vế thu ra 0 (vì trạng thái không còn là `PAID`), vế hoàn ra
+100.000đ → net = **âm 100.000đ**. Doanh thu bị trừ hai lần.
+
+```sql
+-- ĐÚNG: mỗi vế đếm theo mốc thời gian của chính nó, không đụng tới payment_status
+SUM(CASE WHEN paid_at     BETWEEN @from AND @to THEN amount ELSE 0 END)
+  - SUM(CASE WHEN refunded_at BETWEEN @from AND @to THEN amount ELSE 0 END)
+```
+
+Cách đúng còn giữ được tính chất quan trọng hơn: **tổng các kỳ luôn khớp tổng toàn thời gian**,
+và khoản thu tháng này mà hoàn tháng sau rơi vào đúng hai kỳ khác nhau như sổ sách ghi nhận.
 
 ---
 
@@ -421,7 +507,7 @@ Mỗi file **idempotent**: bọc `IF OBJECT_ID(...) IS NULL` / `DROP ... IF EXIS
 | **5** | `02_indexes.sql` + `03_views.sql` | Index & view | `SET STATISTICS IO ON` xác nhận scheduler dùng `IX_Orders_release` |
 | **6** | Seed master + demo | Dữ liệu chạy được | Login 4 role, menu hiện 10 món |
 | **7** | Script verify | `verify/*.sql` | Toàn bộ mục F1 pass |
-| **8** | Rà đối chiếu | Checklist F2 | 21 BR + 10 NFR đều có nơi enforce |
+| **8** | Rà đối chiếu | Checklist F2 | 25 BR + 10 NFR đều có nơi enforce |
 
 Đường găng: **GĐ 2 → 3 → 5**. Ba giai đoạn này quyết định tính đúng đắn; các giai đoạn khác có thể làm song song.
 
@@ -449,8 +535,14 @@ Mỗi file **idempotent**: bọc `IF OBJECT_ID(...) IS NULL` / `DROP ... IF EXIS
 | T-14 | BR-01 | Đặt Category về INACTIVE | Product của nó biến mất khỏi query menu |
 | T-15 | BR-02 | Admin đổi giá Product | `OrderItem.unit_price` đơn cũ **không đổi** |
 | T-16 | NFR-03 | 500 đơn chờ release | Query scheduler dùng `IX_Orders_release`, < 50ms |
+| T-19 | BR-22 | INSERT 2 PaymentTransaction cùng mã biên lai POS | Lần 2 lỗi 2627 → đơn thứ hai bị từ chối |
+| T-20 | BR-21 | INSERT Order Online với `customer_id = NULL` | Lỗi `CK_Orders_onlineCustomer` |
+| T-21 | Mục 13 | Một Payment `paid_at` và `refunded_at` cùng trong kỳ | Net Revenue = **0**, không phải số âm |
+| T-22 | Mục 13 | `paid_at` tháng 1, `refunded_at` tháng 2 | Tháng 1 ghi đủ doanh thu; tháng 2 mới bị trừ |
+| T-23 | BR-25 | UPDATE `received_at` khi `handed_over_at` còn NULL | Lỗi `CK_OrderItem_handover` |
+| T-24 | BR-25 | Handoff cho khách khi đơn còn món chưa `received_at` | Bị từ chối; đơn giữ nguyên READY, không ghi `picked_up_at` |
 
-### F2. Checklist đối chiếu 21 Business Rules
+### F2. Checklist đối chiếu 24 Business Rules
 
 | BR | Nơi enforce | Có ràng buộc DB? |
 |---|---|---|
@@ -474,7 +566,11 @@ Mỗi file **idempotent**: bọc `IF OBJECT_ID(...) IS NULL` / `DROP ... IF EXIS
 | BR-18 READY khi đủ quantity | Thiết kế OrderItem nguyên khối | ✅ theo thiết kế |
 | BR-19 Issue song song | Bảng `KitchenIssue` tách riêng | ✅ |
 | BR-20 Không hard-delete | Trigger chặn DELETE + không CASCADE | ✅ |
-| BR-21 Ownership | `OwnershipFilter` + WHERE `customer_id` | ❌ |
+| BR-21 Ownership | Điều kiện `customer_id` ngay trong câu truy vấn | ❌ |
+| BR-22 POS card/QR cần mã biên lai | `PaymentTransaction` + UNIQUE `external_transaction_id` | ✅ |
+| BR-23 Reset password → buộc đổi | Cột `must_change_password` + `AuthenticationFilter` | ✅ cột |
+| BR-24 Cancel/Refund cần lý do | Service; lý do ghi vào `AuditLog.new_value` | ❌ |
+| BR-25 Bàn giao bếp → quầy | 4 cột timestamp + `CK_OrderItem_handover` + `IX_OrderItem_counter` | ✅ thứ tự; ❌ điều kiện handoff |
 
 > Các ô ❌ là **có chủ đích**: rule cần "thời điểm hiện tại", quyền người dùng, hoặc logic nhiều bước — thuộc Service layer. Điều quan trọng là **không có rule nào bị bỏ sót cả hai nơi**.
 
@@ -483,8 +579,8 @@ Mỗi file **idempotent**: bọc `IF OBJECT_ID(...) IS NULL` / `DROP ... IF EXIS
 ## PHẦN G — TRẠNG THÁI TRIỂN KHAI
 
 Plan đã được triển khai thành **một file duy nhất**:
-[`database/FastFoodPreorder.sql`](../database/FastFoodPreorder.sql) — 13 bảng · 15 index ·
-2 view · 6 trigger · dữ liệu mẫu · 6 truy vấn tự kiểm tra.
+[`database/FastFoodPreorder.sql`](../database/FastFoodPreorder.sql) — 13 bảng · 17 index ·
+2 view · 6 trigger · dữ liệu mẫu · 7 truy vấn tự kiểm tra.
 
 File **xoá và tạo lại toàn bộ bảng mỗi lần chạy**, nên luôn cho ra database sạch.
 `DROP TABLE` không bị các trigger chặn hard-delete cản, vì vậy vẫn giữ được cả hai:

@@ -1,5 +1,6 @@
 package com.fastfood.controller.kitchen;
 
+import com.fastfood.common.util.WebUtil;
 import com.fastfood.controller.BaseServlet;
 import com.fastfood.service.KitchenService;
 
@@ -18,7 +19,8 @@ public class KitchenHistoryServlet extends BaseServlet {
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp)
             throws ServletException, IOException {
-        req.setAttribute("recentReady", kitchenService.recentReady(50));
+        req.setAttribute("pageData", kitchenService.recentReady(WebUtil.getInt(req, "page", 1)));
+        req.setAttribute("filterQuery", WebUtil.queryStringWithout(req, "page"));
         forward(req, resp, "kitchen/history.jsp");
     }
 }

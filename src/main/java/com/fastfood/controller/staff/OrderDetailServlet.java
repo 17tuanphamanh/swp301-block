@@ -5,6 +5,7 @@ import com.fastfood.common.util.WebUtil;
 import com.fastfood.controller.BaseServlet;
 import com.fastfood.model.entity.User;
 import com.fastfood.service.AuditService;
+import com.fastfood.service.KitchenService;
 import com.fastfood.service.OrderService;
 import com.fastfood.service.PaymentService;
 
@@ -26,6 +27,7 @@ public class OrderDetailServlet extends BaseServlet {
     private final OrderService orderService = new OrderService();
     private final PaymentService paymentService = new PaymentService();
     private final AuditService auditService = new AuditService();
+    private final KitchenService kitchenService = new KitchenService();
 
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp)
@@ -35,6 +37,9 @@ public class OrderDetailServlet extends BaseServlet {
             req.setAttribute("order", orderService.findById(orderId));
             req.setAttribute("payments", paymentService.findByOrder(orderId));
             req.setAttribute("auditLogs", auditService.findByEntity("ORDER", orderId));
+            // Con số đếm trên từng dòng món không đủ để nói chuyện với khách — phải có
+            // loại sự cố và mô tả thì nhân viên mới biết đơn đang vướng chuyện gì.
+            req.setAttribute("openIssues", kitchenService.openIssuesOfOrder(orderId));
             forward(req, resp, "staff/order-detail.jsp");
         } catch (AppException e) {
             req.setAttribute("errorMessage", e.getMessage());
@@ -58,12 +63,16 @@ public class OrderDetailServlet extends BaseServlet {
                 return;
             }
             case "cancel": {
-                handle(req, resp, () -> orderService.cancelByStaff(orderId, staff.getUserId()),
-                        "Đã huỷ đơn #" + orderId + ".", back);
+                // Huỷ đơn và hoàn tiền là một thao tác, không phải hai nút bấm rời nhau:
+                // tách ra thì nhân viên làm được nửa chừng và để lại đơn dở dang.
+                String reason = WebUtil.getString(req, "reason");
+                handle(req, resp, () -> orderService.cancelByStaff(orderId, staff.getUserId(), reason),
+                        "Đã huỷ đơn #" + orderId + " và hoàn lại tiền nếu khách đã thanh toán.", back);
                 return;
             }
             case "refund": {
-                handle(req, resp, () -> paymentService.refund(orderId, staff.getUserId()),
+                String refundReason = WebUtil.getString(req, "refundReason");
+                handle(req, resp, () -> paymentService.refund(orderId, staff.getUserId(), refundReason),
                         "Đã hoàn tiền cho đơn #" + orderId + ".", back);
                 return;
             }

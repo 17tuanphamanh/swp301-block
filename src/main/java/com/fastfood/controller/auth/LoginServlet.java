@@ -46,7 +46,7 @@ public class LoginServlet extends BaseServlet {
             HttpSession session = req.getSession(true);
             session.setAttribute(WebUtil.SESSION_USER, user);
 
-            redirect(req, resp, redirectAfterLogin != null ? redirectAfterLogin : "/");
+            redirect(req, resp, WebUtil.safeRedirect(redirectAfterLogin, "/"));
         } catch (AppException e) {
             req.setAttribute("errorMessage", e.getMessage());
             req.setAttribute("email", email);

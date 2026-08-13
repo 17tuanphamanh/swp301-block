@@ -1,17 +1,11 @@
 <c:set var="pageTitle" value="Món ăn" /><c:set var="nav" value="products" />
-<!DOCTYPE html>
-<html lang="vi">
-<head><jsp:include page="/WEB-INF/views/layout/head.jsp"/></head>
-<body>
-<jsp:include page="/WEB-INF/views/layout/header.jsp"/>
-
-<main class="container">
+<%@ include file="/WEB-INF/views/layout/page-start.jspf" %>
   <div class="page-head">
     <h1>Món ăn</h1>
     <p>Món ngừng bán thì chuyển sang trạng thái ngừng kinh doanh, không xoá — đơn cũ vẫn cần tham chiếu tới.</p>
   </div>
 
-  <jsp:include page="/WEB-INF/views/layout/flash.jsp"/>
+  <%@ include file="/WEB-INF/views/layout/flash.jspf" %>
 
   <div class="grid grid-side">
     <div>
@@ -19,14 +13,14 @@
         <form method="get" action="${ctx}/admin/products" class="form-row">
           <div class="field">
             <label for="keyword">Tìm món</label>
-            <input type="search" id="keyword" name="keyword" value="${keyword}">
+            <input type="search" id="keyword" name="keyword" value="<c:out value="${keyword}"/>">
           </div>
           <div class="field">
             <label for="filterCategory">Nhóm món</label>
             <select id="filterCategory" name="categoryId">
               <option value="">Tất cả</option>
               <c:forEach var="cat" items="${categories}">
-                <option value="${cat.categoryId}" ${selectedCategory eq cat.categoryId ? 'selected' : ''}>${cat.name}</option>
+                <option value="${cat.categoryId}" ${selectedCategory eq cat.categoryId ? 'selected' : ''}><c:out value="${cat.name}"/></option>
               </c:forEach>
             </select>
           </div>
@@ -36,24 +30,23 @@
 
       <div class="card pad0 table-wrap">
         <table>
-          <thead><tr><th>Tên món</th><th>Nhóm</th><th class="num">Giá</th>
-                     <th>Tình trạng</th><th>Trên thực đơn</th><th></th></tr></thead>
+          <thead><tr><th scope="col">Tên món</th><th scope="col">Nhóm</th><th scope="col" class="num">Giá</th>
+                     <th scope="col">Tình trạng</th><th scope="col">Trên thực đơn</th><th scope="col"><span class="visually-hidden">Thao tác</span></th></tr></thead>
           <tbody>
             <c:forEach var="p" items="${products}">
               <tr>
                 <td>
-                  <strong>${p.name}</strong>
-                  <div class="small muted">${p.description}</div>
+                  <strong><c:out value="${p.name}"/></strong>
+                  <div class="small muted"><c:out value="${p.description}"/></div>
                 </td>
-                <td class="small">${p.categoryName}</td>
+                <td class="small"><c:out value="${p.categoryName}"/></td>
                 <td class="num">${ff:money(p.price)}</td>
                 <td>
                   <form method="post" action="${ctx}/admin/products" class="inline-form">
                     <input type="hidden" name="action" value="toggle">
                     <input type="hidden" name="productId" value="${p.productId}">
                     <input type="hidden" name="available" value="${p.available ? 'false' : 'true'}">
-                    <button type="submit" class="tag ${p.available ? 'tag-green' : 'tag-amber'}"
-                            style="border:0; cursor:pointer;">
+                    <button type="submit" class="tag tag-btn ${p.available ? 'tag-green' : 'tag-amber'}">
                       ${p.available ? 'Còn hàng' : 'Tạm hết'}
                     </button>
                   </form>
@@ -79,13 +72,13 @@
         <input type="hidden" name="productId" value="${editing.productId}">
         <div class="field">
           <label for="name">Tên món</label>
-          <input type="text" id="name" name="name" value="${editing.name}" required>
+          <input type="text" id="name" name="name" value="<c:out value="${editing.name}"/>" required>
         </div>
         <div class="field">
           <label for="categoryId">Nhóm món</label>
           <select id="categoryId" name="categoryId" required>
             <c:forEach var="cat" items="${categories}">
-              <option value="${cat.categoryId}" ${editing.categoryId eq cat.categoryId ? 'selected' : ''}>${cat.name}</option>
+              <option value="${cat.categoryId}" ${editing.categoryId eq cat.categoryId ? 'selected' : ''}><c:out value="${cat.name}"/></option>
             </c:forEach>
           </select>
         </div>
@@ -95,21 +88,31 @@
         </div>
         <div class="field">
           <label for="description">Mô tả</label>
-          <textarea id="description" name="description">${editing.description}</textarea>
+          <textarea id="description" name="description"><c:out value="${editing.description}"/></textarea>
         </div>
         <div class="field">
-          <label for="imageUrl">Đường dẫn ảnh</label>
-          <input type="text" id="imageUrl" name="imageUrl" value="${editing.imageUrl}">
+          <label for="imageUrl">Đường dẫn ảnh <span class="hint">(tối đa 255 ký tự)</span></label>
+          <%-- maxlength khớp với độ dài cột image_url trong cơ sở dữ liệu: đường dẫn CDN rất
+               dễ dài hơn 255, và nếu không chặn ở đây thì nó bị cắt cụt lúc lưu mà không báo. --%>
+          <input type="url" id="imageUrl" name="imageUrl" maxlength="255"
+                 placeholder="https://..." data-preview="imageUrlPreview"
+                 value="<c:out value="${editing.imageUrl}"/>">
+          <%-- Xem trước ngay tại chỗ để biết đường dẫn có sống không, khỏi phải lưu lại rồi
+               mở thực đơn ra kiểm tra. --%>
+          <img class="url-preview" id="imageUrlPreview" alt="" hidden referrerpolicy="no-referrer">
+          <p class="small muted" id="imageUrlPreviewMsg" hidden>
+            Không tải được ảnh từ đường dẫn này. Kiểm tra lại hoặc để trống.
+          </p>
         </div>
         <div class="field check">
           <input type="checkbox" id="available" name="available" value="true"
                  ${empty editing or editing.available ? 'checked' : ''}>
-          <label for="available" style="margin:0;">Còn hàng hôm nay</label>
+          <label for="available">Còn hàng hôm nay</label>
         </div>
         <div class="field check">
           <input type="checkbox" id="active" name="active" value="true"
                  ${empty editing or editing.status eq 'ACTIVE' ? 'checked' : ''}>
-          <label for="active" style="margin:0;">Đang kinh doanh</label>
+          <label for="active">Đang kinh doanh</label>
         </div>
         <button type="submit" class="btn btn-primary btn-block">
           ${empty editing ? 'Thêm món' : 'Lưu thay đổi'}
@@ -120,8 +123,4 @@
       </form>
     </div>
   </div>
-</main>
-
-<jsp:include page="/WEB-INF/views/layout/footer.jsp"/>
-</body>
-</html>
+<%@ include file="/WEB-INF/views/layout/page-end.jspf" %>

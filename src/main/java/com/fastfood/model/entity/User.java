@@ -11,6 +11,7 @@ public class User {
     private String passwordHash;
     private int roleId;
     private String status;
+    private boolean mustChangePassword;
     private LocalDateTime createdAt;
     private LocalDateTime updatedAt;
 
@@ -48,4 +49,12 @@ public class User {
     public void setRoleName(String roleName) { this.roleName = roleName; }
 
     public boolean isActive() { return "ACTIVE".equals(status); }
+
+    /**
+     * Quản trị viên vừa đặt lại mật khẩu cho tài khoản này, nên mật khẩu hiện tại là mật khẩu
+     * tạm mà một người khác biết. Còn cờ này thì người dùng chỉ đi được tới trang tài khoản
+     * để tự đặt mật khẩu mới.
+     */
+    public boolean isMustChangePassword() { return mustChangePassword; }
+    public void setMustChangePassword(boolean mustChangePassword) { this.mustChangePassword = mustChangePassword; }
 }

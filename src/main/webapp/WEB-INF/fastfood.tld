@@ -90,6 +90,16 @@
         <function-signature>java.lang.String issueType(java.lang.String)</function-signature>
     </function>
     <function>
+        <name>issueStatus</name>
+        <function-class>com.fastfood.common.util.ViewFunctions</function-class>
+        <function-signature>java.lang.String issueStatus(java.lang.String)</function-signature>
+    </function>
+    <function>
+        <name>issueStatusTag</name>
+        <function-class>com.fastfood.common.util.ViewFunctions</function-class>
+        <function-signature>java.lang.String issueStatusTag(java.lang.String)</function-signature>
+    </function>
+    <function>
         <name>auditAction</name>
         <function-class>com.fastfood.common.util.ViewFunctions</function-class>
         <function-signature>java.lang.String auditAction(java.lang.String)</function-signature>

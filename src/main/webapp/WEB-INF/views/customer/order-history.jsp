@@ -1,22 +1,15 @@
 <c:set var="pageTitle" value="Đơn của tôi" /><c:set var="nav" value="orders" />
-<!DOCTYPE html>
-<html lang="vi">
-<head><jsp:include page="/WEB-INF/views/layout/head.jsp"/></head>
-<body>
-<jsp:include page="/WEB-INF/views/layout/header.jsp"/>
-
-<main class="container">
+<%@ include file="/WEB-INF/views/layout/page-start.jspf" %>
   <div class="page-head"><h1>Đơn của tôi</h1></div>
 
-  <jsp:include page="/WEB-INF/views/layout/flash.jsp"/>
+  <%@ include file="/WEB-INF/views/layout/flash.jspf" %>
 
   <c:if test="${not empty activeOrders}">
     <div class="card">
       <h2>Đang theo dõi</h2>
       <div class="grid grid-3">
         <c:forEach var="o" items="${activeOrders}">
-          <a class="kds-card ${o.online ? 'online' : 'pos'}" href="${ctx}/order/track?orderId=${o.orderId}"
-             style="color:inherit;">
+          <a class="kds-card ${o.online ? 'online' : 'pos'}" href="${ctx}/order/track?orderId=${o.orderId}">
             <div class="row-between">
               <strong>#${o.orderId}</strong>
               <span class="${ff:orderStatusClass(o.orderStatus)}">${ff:orderStatus(o.orderStatus)}</span>
@@ -37,34 +30,34 @@
   <div class="card pad0 table-wrap">
     <div class="card-head"><h2>Toàn bộ lịch sử</h2></div>
     <c:choose>
-      <c:when test="${empty orders}">
+      <c:when test="${pageData.emptyPage}">
         <div class="empty">
-          <div class="icon">📋</div>
+          <div class="icon" aria-hidden="true">📋</div>
           Bạn chưa có đơn hàng nào.
           <div class="mt"><a class="btn btn-primary" href="${ctx}/menu">Đặt món ngay</a></div>
         </div>
       </c:when>
       <c:otherwise>
-        <table>
+        <table class="table-cards">
           <thead>
-            <tr><th>Mã đơn</th><th>Đặt lúc</th><th>Giờ hẹn</th>
-                <th class="num">Tổng tiền</th><th>Trạng thái</th><th></th></tr>
+            <tr><th scope="col">Mã đơn</th><th scope="col">Đặt lúc</th><th scope="col">Giờ hẹn</th>
+                <th scope="col" class="num">Tổng tiền</th><th scope="col">Trạng thái</th><th scope="col"><span class="visually-hidden">Thao tác</span></th></tr>
           </thead>
           <tbody>
-            <c:forEach var="o" items="${orders}">
+            <c:forEach var="o" items="${pageData.items}">
               <tr>
-                <td><strong>#${o.orderId}</strong></td>
-                <td class="small">${ff:dateTime(o.createdAt)}</td>
-                <td class="small">
+                <td data-label="Mã đơn"><strong>#${o.orderId}</strong></td>
+                <td class="small" data-label="Đặt lúc">${ff:dateTime(o.createdAt)}</td>
+                <td class="small" data-label="Giờ hẹn">
                   <c:choose>
                     <c:when test="${o.online}">${ff:dateTime(o.pickupTime)}</c:when>
                     <c:otherwise><span class="muted">Mua tại quầy</span></c:otherwise>
                   </c:choose>
                 </td>
-                <td class="num">${ff:money(o.totalAmount)}</td>
-                <td><span class="${ff:orderStatusClass(o.orderStatus)}">${ff:orderStatus(o.orderStatus)}</span></td>
-                <td class="center">
-                  <a class="btn btn-sm" href="${ctx}/order/track?orderId=${o.orderId}">Xem</a>
+                <td class="num" data-label="Tổng tiền">${ff:money(o.totalAmount)}</td>
+                <td data-label="Trạng thái"><span class="${ff:orderStatusClass(o.orderStatus)}">${ff:orderStatus(o.orderStatus)}</span></td>
+                <td class="center" data-label="">
+                  <a class="btn touch" href="${ctx}/order/track?orderId=${o.orderId}">Xem</a>
                 </td>
               </tr>
             </c:forEach>
@@ -72,9 +65,6 @@
         </table>
       </c:otherwise>
     </c:choose>
+    <%@ include file="/WEB-INF/views/layout/pager.jspf" %>
   </div>
-</main>
-
-<jsp:include page="/WEB-INF/views/layout/footer.jsp"/>
-</body>
-</html>
+<%@ include file="/WEB-INF/views/layout/page-end.jspf" %>

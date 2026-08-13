@@ -34,11 +34,49 @@ public class AuditLogDAO {
         }
     }
 
+    /**
+     * Một trang bản ghi khớp bộ lọc, mới nhất trước.
+     * <p>
+     * OFFSET/FETCH bắt buộc phải có ORDER BY: không sắp thứ tự thì "trang 2" không có
+     * nghĩa gì, và cùng một truy vấn chạy hai lần có thể trả về hai tập khác nhau.
+     */
     public List<AuditLog> search(Connection con, String entityType, String action,
-                                 LocalDateTime from, LocalDateTime to, int limit) throws SQLException {
-        StringBuilder sql = new StringBuilder(base().replaceFirst("SELECT", "SELECT TOP (" + limit + ")"));
-        sql.append("WHERE 1 = 1 ");
+                                 LocalDateTime from, LocalDateTime to,
+                                 int offset, int limit) throws SQLException {
         List<Object> params = new ArrayList<>();
+        String sql = base() + where(entityType, action, from, to, params)
+                   + "ORDER BY a.created_at DESC, a.audit_id DESC "
+                   + "OFFSET ? ROWS FETCH NEXT ? ROWS ONLY";
+        try (PreparedStatement ps = con.prepareStatement(sql)) {
+            int i = bind(ps, params);
+            ps.setInt(i++, offset);
+            ps.setInt(i, limit);
+            return collect(ps);
+        }
+    }
+
+    /** Tổng số bản ghi khớp bộ lọc, để biết có bao nhiêu trang. */
+    public long countSearch(Connection con, String entityType, String action,
+                            LocalDateTime from, LocalDateTime to) throws SQLException {
+        List<Object> params = new ArrayList<>();
+        // Đếm không cần nối sang bảng Users: điều kiện lọc chỉ đụng tới cột của AuditLog.
+        String sql = "SELECT COUNT(*) FROM dbo.AuditLog a " + where(entityType, action, from, to, params);
+        try (PreparedStatement ps = con.prepareStatement(sql)) {
+            bind(ps, params);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() ? rs.getLong(1) : 0L;
+            }
+        }
+    }
+
+    /**
+     * Mệnh đề lọc dùng chung cho cả câu lấy dữ liệu lẫn câu đếm.
+     * Viết hai lần thì sớm muộn hai bên cũng lệch nhau, và khi đó số trang sẽ không khớp
+     * với số dòng thật sự lấy được.
+     */
+    private String where(String entityType, String action,
+                         LocalDateTime from, LocalDateTime to, List<Object> params) {
+        StringBuilder sql = new StringBuilder("WHERE 1 = 1 ");
         if (entityType != null && !entityType.isBlank()) {
             sql.append("AND a.entity_type = ? ");
             params.add(entityType);
@@ -55,13 +93,15 @@ public class AuditLogDAO {
             sql.append("AND a.created_at <= ? ");
             params.add(Timestamp.valueOf(to));
         }
-        sql.append("ORDER BY a.created_at DESC");
-        try (PreparedStatement ps = con.prepareStatement(sql.toString())) {
-            for (int i = 0; i < params.size(); i++) {
-                ps.setObject(i + 1, params.get(i));
-            }
-            return collect(ps);
+        return sql.toString();
+    }
+
+    /** Gán tham số lọc, trả về vị trí tham số kế tiếp còn trống. */
+    private int bind(PreparedStatement ps, List<Object> params) throws SQLException {
+        for (int i = 0; i < params.size(); i++) {
+            ps.setObject(i + 1, params.get(i));
         }
+        return params.size() + 1;
     }
 
     /** Các loại thao tác đã từng ghi nhận, dùng để đổ vào ô lọc. */

@@ -5,6 +5,7 @@ import java.math.BigDecimal;
 /** Các con số trên bảng điều khiển của quản trị viên. */
 public class DashboardKpi {
 
+    private BigDecimal grossRevenue = BigDecimal.ZERO;
     private BigDecimal netRevenue = BigDecimal.ZERO;
     private BigDecimal refundedAmount = BigDecimal.ZERO;
     private int onlineOrderCount;
@@ -18,6 +19,11 @@ public class DashboardKpi {
     private int totalReadyMeasured;
     private Double avgPrepLeadMinutes;
 
+    /** Tiền thật sự thu được trong kỳ, chưa trừ hoàn. Tính theo paid_at. */
+    public BigDecimal getGrossRevenue() { return grossRevenue; }
+    public void setGrossRevenue(BigDecimal grossRevenue) { this.grossRevenue = grossRevenue; }
+
+    /** Doanh thu thuần = đã thu trong kỳ trừ đã hoàn trong kỳ (tính theo refunded_at). */
     public BigDecimal getNetRevenue() { return netRevenue; }
     public void setNetRevenue(BigDecimal netRevenue) { this.netRevenue = netRevenue; }
 

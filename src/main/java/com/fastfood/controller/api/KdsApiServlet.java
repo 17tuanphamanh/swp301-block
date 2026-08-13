@@ -44,11 +44,17 @@ public class KdsApiServlet extends HttpServlet {
             o.addProperty("urgent", view.isUrgent());
             o.addProperty("late", view.isLate());
             o.addProperty("pickupLabel", view.getPickupLabel());
+            // Thẻ trên màn hình bếp có hiện số sự cố đang mở, nên dữ liệu cập nhật cũng
+            // phải mang theo — thiếu trường này thì thẻ vẽ lại sẽ mất nhãn sự cố.
+            o.addProperty("openIssueCount", view.getOpenIssueCount());
             queue.add(o);
         }
         root.add("queue", queue);
         root.addProperty("queueCount", queue.size());
         root.addProperty("myTaskCount", kitchenService.myTasks(user.getUserId()).size());
+        // Món đã xong mà chưa ra quầy là thứ dễ bị bỏ quên nhất, nên số đếm của nó cũng phải
+        // tự cập nhật — người khác đánh dấu xong hộ thì con số ở đây cũng phải nhúc nhích.
+        root.addProperty("handoverCount", kitchenService.awaitingHandover(user.getUserId()).size());
 
         resp.setContentType("application/json;charset=UTF-8");
         resp.getWriter().write(root.toString());

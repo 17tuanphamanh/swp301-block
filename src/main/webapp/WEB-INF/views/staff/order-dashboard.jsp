@@ -1,20 +1,93 @@
 <c:set var="pageTitle" value="Đơn hàng" /><c:set var="nav" value="orders" />
-<!DOCTYPE html>
-<html lang="vi">
-<head><jsp:include page="/WEB-INF/views/layout/head.jsp"/></head>
-<body>
-<jsp:include page="/WEB-INF/views/layout/header.jsp"/>
-
-<main class="container">
+<%@ include file="/WEB-INF/views/layout/page-start.jspf" %>
   <div class="page-head"><h1>Đơn hàng</h1></div>
 
-  <jsp:include page="/WEB-INF/views/layout/flash.jsp"/>
+  <%@ include file="/WEB-INF/views/layout/flash.jspf" %>
+
+  <%-- Tra mã đặt trên cùng: khách đứng ở quầy là việc gấp nhất trong màn hình này. --%>
+  <div class="card">
+    <form method="get" action="${ctx}/staff/orders" class="form-row">
+      <%-- Giữ tab đang mở, nếu không thì tra một mã xong lại quay về tab mặc định. --%>
+      <input type="hidden" name="tab" value="${tab}">
+      <div class="field">
+        <label for="code">Mã nhận hàng</label>
+        <input type="text" id="code" name="code" value="<c:out value="${code}"/>"
+               class="mono code-input" placeholder="VD: 260813A1C7">
+      </div>
+      <button type="submit" class="btn btn-primary touch">Tra cứu</button>
+    </form>
+
+    <c:if test="${not empty lookupError}">
+      <div class="alert alert-error mt" role="alert"><c:out value="${lookupError}"/></div>
+    </c:if>
+    <c:if test="${not empty lookupWarning}">
+      <div class="alert alert-warn mt" role="alert"><c:out value="${lookupWarning}"/></div>
+    </c:if>
+
+    <c:if test="${not empty found}">
+      <div class="mt">
+        <div class="row-between mb">
+          <div>
+            <h2>Đơn #${found.orderId}</h2>
+            <p class="small muted"><c:out value="${empty found.customerName ? 'Khách tại quầy' : found.customerName}"/></p>
+          </div>
+          <span class="${ff:orderStatusClass(found.orderStatus)}">${ff:orderStatus(found.orderStatus)}</span>
+        </div>
+
+        <div class="grid grid-2">
+          <div>
+            <div class="total-line"><span class="muted">Giờ hẹn</span><span>${ff:dateTime(found.pickupTime)}</span></div>
+            <div class="total-line"><span class="muted">Sẵn sàng lúc</span>
+              <span>${empty found.readyAt ? 'Chưa xong' : ff:dateTime(found.readyAt)}</span></div>
+          </div>
+          <div>
+            <div class="total-line"><span class="muted">Thanh toán</span>
+              <span class="${ff:paymentStatusClass(found.latestPayment.paymentStatus)}">
+                ${ff:paymentStatus(found.latestPayment.paymentStatus)}</span></div>
+            <div class="total-line grand"><span>Tổng tiền</span><span>${ff:money(found.totalAmount)}</span></div>
+          </div>
+        </div>
+
+        <ul class="mt bullets">
+          <c:forEach var="item" items="${found.items}">
+            <li><c:out value="${item.productNameSnapshot}"/> × ${item.quantity}
+              <span class="${ff:itemStatusClass(item.itemStatus)}">${ff:itemStatus(item.itemStatus)}</span>
+            </li>
+          </c:forEach>
+        </ul>
+
+        <div class="actions mt">
+          <a class="btn btn-primary" href="${ctx}/staff/order/detail?orderId=${found.orderId}">
+            Mở đơn để giao món
+          </a>
+        </div>
+      </div>
+    </c:if>
+  </div>
+
+  <%-- Món đang nằm trên quầy là việc phải làm ngay: món để lâu thì nguội, và đơn không giao
+       được cho khách chừng nào quầy chưa nhận đủ món. --%>
+  <c:if test="${awaitingCounterCount > 0}">
+    <div class="alert alert-info">
+      Bếp vừa bàn giao <strong>${awaitingCounterCount} món</strong> ra quầy mà chưa ai xác nhận
+      đã nhận. Đơn chỉ giao cho khách được khi quầy đã nhận đủ món.
+      <a href="${ctx}/staff/counter">Nhận món →</a>
+    </div>
+  </c:if>
+
+  <c:if test="${openIssueCount > 0}">
+    <div class="alert alert-warn">
+      Bếp đang báo <strong>${openIssueCount} sự cố</strong> chưa xử lý. Đơn vướng sự cố sẽ
+      không tự sẵn sàng được — cần liên hệ khách để đổi món hoặc huỷ đơn.
+      <a href="${ctx}/staff/counter">Xem danh sách →</a>
+    </div>
+  </c:if>
 
   <div class="tabs">
     <a href="${ctx}/staff/orders?tab=POS" class="${tab eq 'POS' ? 'active' : ''}">
       Tại quầy <span class="count">${countPos}</span></a>
     <a href="${ctx}/staff/orders?tab=SCHEDULED" class="${tab eq 'SCHEDULED' ? 'active' : ''}">
-      Đặt trước chờ tới giờ <span class="count">${countScheduled}</span></a>
+      Đơn đặt trước <span class="count">${countScheduled}</span></a>
     <a href="${ctx}/staff/orders?tab=READY" class="${tab eq 'READY' ? 'active' : ''}">
       Chờ khách tới lấy <span class="count">${countReady}</span></a>
     <a href="${ctx}/staff/orders?tab=OVERDUE" class="${tab eq 'OVERDUE' ? 'active' : ''}">
@@ -23,8 +96,8 @@
 
   <c:if test="${tab eq 'SCHEDULED'}">
     <div class="alert alert-info">
-      Các đơn này đã thanh toán nhưng cố ý chưa đưa xuống bếp. Hệ thống sẽ tự đưa xuống
-      trước giờ hẹn để món ra đúng lúc khách tới.
+      Đơn đã thanh toán, đang chờ tới giờ hoặc đang được bếp làm. Đơn còn ở trạng thái đã xác nhận
+      là cố ý chưa đưa xuống bếp — hệ thống tự đưa xuống trước giờ hẹn để món ra đúng lúc khách tới.
     </div>
   </c:if>
   <c:if test="${tab eq 'OVERDUE'}">
@@ -37,13 +110,13 @@
   <div class="card pad0 table-wrap">
     <c:choose>
       <c:when test="${empty orders}">
-        <div class="empty"><div class="icon">✅</div>Không có đơn nào trong mục này.</div>
+        <div class="empty"><div class="icon" aria-hidden="true">✅</div>Không có đơn nào trong mục này.</div>
       </c:when>
       <c:otherwise>
         <table>
           <thead>
-            <tr><th>Mã đơn</th><th>Kênh</th><th>Khách</th><th>Giờ hẹn</th>
-                <th>Bếp</th><th class="num">Tổng tiền</th><th>Trạng thái</th><th></th></tr>
+            <tr><th scope="col">Mã đơn</th><th scope="col">Kênh</th><th scope="col">Khách</th><th scope="col">Giờ hẹn</th>
+                <th scope="col">Bếp</th><th scope="col" class="num">Tổng tiền</th><th scope="col">Trạng thái</th><th scope="col"><span class="visually-hidden">Thao tác</span></th></tr>
           </thead>
           <tbody>
             <c:forEach var="o" items="${orders}">
@@ -71,7 +144,7 @@
                   <c:if test="${o.overdue}"><div><span class="tag tag-red">Đến muộn</span></div></c:if>
                 </td>
                 <td class="center">
-                  <a class="btn btn-sm btn-primary" href="${ctx}/staff/order/detail?orderId=${o.orderId}">Mở</a>
+                  <a class="btn touch btn-primary" href="${ctx}/staff/order/detail?orderId=${o.orderId}">Mở</a>
                 </td>
               </tr>
             </c:forEach>
@@ -80,8 +153,4 @@
       </c:otherwise>
     </c:choose>
   </div>
-</main>
-
-<jsp:include page="/WEB-INF/views/layout/footer.jsp"/>
-</body>
-</html>
+<%@ include file="/WEB-INF/views/layout/page-end.jspf" %>

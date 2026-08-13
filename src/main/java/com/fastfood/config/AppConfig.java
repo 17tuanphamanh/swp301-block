@@ -69,6 +69,16 @@ public final class AppConfig {
         return getInt("business.pickup.overdueMinutes", BusinessRule.PICKUP_OVERDUE_MINUTES);
     }
 
+    /** Giờ cửa hàng mở cửa (0-23). Khách không hẹn lấy hàng ngoài khung mở cửa được. */
+    public static int storeOpenHour() {
+        return getInt("business.store.openHour", BusinessRule.STORE_OPEN_HOUR);
+    }
+
+    /** Giờ cửa hàng đóng cửa (0-23). */
+    public static int storeCloseHour() {
+        return getInt("business.store.closeHour", BusinessRule.STORE_CLOSE_HOUR);
+    }
+
     // ----- Scheduler -----
 
     public static int releaseIntervalSeconds() {

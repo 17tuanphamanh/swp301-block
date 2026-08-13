@@ -25,6 +25,7 @@ public class ScheduleService {
 
     private final OrderDAO orderDAO = new OrderDAO();
     private final AuditService auditService = new AuditService();
+    private final NotificationService notificationService = new NotificationService();
 
     /**
      * Đưa các đơn đã tới giờ xuống bếp.
@@ -95,6 +96,9 @@ public class ScheduleService {
                     }
                     auditService.logSystem(con, "ORDER", order.getOrderId(),
                             AuditAction.ORDER_EXPIRED, OrderStatus.EXPIRED.name());
+                    // Khách đang chờ một bữa ăn mà không biết đơn đã mất hiệu lực. Báo ngay
+                    // để còn kịp đặt lại, thay vì tới nơi mới phát hiện.
+                    notificationService.notifyOrderExpired(con, order);
                     return true;
                 });
                 if (ok) {

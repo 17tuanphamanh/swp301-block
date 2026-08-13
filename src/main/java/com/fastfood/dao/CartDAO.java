@@ -10,15 +10,17 @@ import java.util.List;
 /** Truy vấn giỏ hàng. Gộp cả Cart và CartItem vì hai bảng luôn dùng cùng nhau. */
 public class CartDAO {
 
-    /** Lấy giỏ của khách, chưa có thì tạo mới. Mỗi khách chỉ có đúng một giỏ. */
+    /**
+     * Lấy giỏ của khách, chưa có thì tạo mới. Mỗi khách chỉ có đúng một giỏ.
+     * <p>
+     * Cột user_id có ràng buộc duy nhất, nên hai yêu cầu gần như cùng lúc của cùng một khách
+     * (mở trang thực đơn trong lúc bấm thêm món chẳng hạn) đều thấy "chưa có giỏ" rồi cùng ghi.
+     * Người thứ hai đụng ràng buộc; khi đó đọc lại giỏ vừa được tạo thay vì trả lỗi ra ngoài.
+     */
     public int getOrCreateCartId(Connection con, int userId, LocalDateTime now) throws SQLException {
-        try (PreparedStatement ps = con.prepareStatement("SELECT cart_id FROM dbo.Cart WHERE user_id = ?")) {
-            ps.setInt(1, userId);
-            try (ResultSet rs = ps.executeQuery()) {
-                if (rs.next()) {
-                    return rs.getInt(1);
-                }
-            }
+        Integer existing = findCartId(con, userId);
+        if (existing != null) {
+            return existing;
         }
         try (PreparedStatement ps = con.prepareStatement(
                 "INSERT INTO dbo.Cart (user_id, updated_at) VALUES (?, ?)", Statement.RETURN_GENERATED_KEYS)) {
@@ -27,6 +29,24 @@ public class CartDAO {
             ps.executeUpdate();
             try (ResultSet keys = ps.getGeneratedKeys()) {
                 return keys.next() ? keys.getInt(1) : 0;
+            }
+        } catch (SQLException e) {
+            if (!JdbcSupport.isUniqueViolation(e)) {
+                throw e;
+            }
+            Integer created = findCartId(con, userId);
+            if (created == null) {
+                throw e;
+            }
+            return created;
+        }
+    }
+
+    private Integer findCartId(Connection con, int userId) throws SQLException {
+        try (PreparedStatement ps = con.prepareStatement("SELECT cart_id FROM dbo.Cart WHERE user_id = ?")) {
+            ps.setInt(1, userId);
+            try (ResultSet rs = ps.executeQuery()) {
+                return rs.next() ? rs.getInt(1) : null;
             }
         }
     }

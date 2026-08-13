@@ -64,4 +64,18 @@ public final class JdbcSupport {
     public static boolean isUniqueViolation(SQLException e) {
         return e.getErrorCode() == 2627 || e.getErrorCode() == 2601;
     }
+
+    /**
+     * Như trên nhưng lần theo cả chuỗi nguyên nhân.
+     * Tầng Service bọc lỗi SQL lại thành lỗi của riêng nó, nên khi bắt ở ngoài ranh giới
+     * giao dịch thì {@link SQLException} gốc đã nằm sâu bên trong.
+     */
+    public static boolean isUniqueViolation(Throwable t) {
+        for (Throwable cause = t; cause != null; cause = cause.getCause()) {
+            if (cause instanceof SQLException && isUniqueViolation((SQLException) cause)) {
+                return true;
+            }
+        }
+        return false;
+    }
 }

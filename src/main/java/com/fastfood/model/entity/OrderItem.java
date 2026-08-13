@@ -27,8 +27,16 @@ public class OrderItem {
     private LocalDateTime startedAt;
     private LocalDateTime readyAt;
 
+    // Bàn giao món từ bếp ra quầy — hai mốc của hai người khác nhau
+    private LocalDateTime handedOverAt;
+    private Integer handedOverBy;
+    private LocalDateTime receivedAt;
+    private Integer receivedBy;
+
     // Dữ liệu lấy kèm để màn hình bếp biết đơn này gấp tới đâu
     private String assignedToName;
+    private String handedOverByName;
+    private String receivedByName;
     private String orderSource;
     private LocalDateTime pickupTime;
     private int openIssueCount;
@@ -63,8 +71,26 @@ public class OrderItem {
     public LocalDateTime getReadyAt() { return readyAt; }
     public void setReadyAt(LocalDateTime readyAt) { this.readyAt = readyAt; }
 
+    public LocalDateTime getHandedOverAt() { return handedOverAt; }
+    public void setHandedOverAt(LocalDateTime handedOverAt) { this.handedOverAt = handedOverAt; }
+
+    public Integer getHandedOverBy() { return handedOverBy; }
+    public void setHandedOverBy(Integer handedOverBy) { this.handedOverBy = handedOverBy; }
+
+    public LocalDateTime getReceivedAt() { return receivedAt; }
+    public void setReceivedAt(LocalDateTime receivedAt) { this.receivedAt = receivedAt; }
+
+    public Integer getReceivedBy() { return receivedBy; }
+    public void setReceivedBy(Integer receivedBy) { this.receivedBy = receivedBy; }
+
     public String getAssignedToName() { return assignedToName; }
     public void setAssignedToName(String assignedToName) { this.assignedToName = assignedToName; }
+
+    public String getHandedOverByName() { return handedOverByName; }
+    public void setHandedOverByName(String handedOverByName) { this.handedOverByName = handedOverByName; }
+
+    public String getReceivedByName() { return receivedByName; }
+    public void setReceivedByName(String receivedByName) { this.receivedByName = receivedByName; }
 
     public String getOrderSource() { return orderSource; }
     public void setOrderSource(String orderSource) { this.orderSource = orderSource; }
@@ -86,4 +112,13 @@ public class OrderItem {
     public boolean isReady()     { return OrderItemStatus.READY.name().equals(itemStatus); }
 
     public boolean isClaimed() { return assignedToUserId != null; }
+
+    public boolean isHandedOver() { return handedOverAt != null; }
+    public boolean isReceived()   { return receivedAt != null; }
+
+    /** Món đã xong nhưng bếp chưa đưa ra quầy — việc còn lại của đầu bếp. */
+    public boolean isAwaitingHandover() { return isReady() && handedOverAt == null; }
+
+    /** Món đang nằm trên quầy chờ thu ngân xác nhận đã cầm. */
+    public boolean isAwaitingCounter() { return handedOverAt != null && receivedAt == null; }
 }
