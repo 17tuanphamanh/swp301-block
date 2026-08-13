@@ -1,5 +1,6 @@
 package com.fastfood.dao;
 
+import com.fastfood.common.util.DateTimeUtil;
 import com.fastfood.model.dto.DashboardKpi;
 import com.fastfood.model.dto.ReportRow;
 
@@ -92,7 +93,7 @@ public class ReportDAO {
                 "FROM dbo.Orders WHERE order_status = 'READY'";
         try (PreparedStatement ps = con.prepareStatement(liveSql)) {
             ps.setInt(1, overdueMinutes);
-            JdbcSupport.setDateTime(ps, 2, LocalDateTime.now());
+            JdbcSupport.setDateTime(ps, 2, DateTimeUtil.now());
             try (ResultSet rs = ps.executeQuery()) {
                 if (rs.next()) {
                     kpi.setReadyOrderCount(rs.getInt("ready_cnt"));

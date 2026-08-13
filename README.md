@@ -1,71 +1,79 @@
-# Fast Food Pre-order Pickup & POS — SWP301
+# Fast Food Pre-order Pickup & POS
 
-Hệ thống bán & quản lý đồ ăn nhanh theo **Requirements Baseline V6**: hai kênh order
-**ONLINE_PREORDER** (đặt trước từ xa + hẹn giờ đến lấy tại cửa hàng) và **POS** (walk-in tại quầy).
-**MVP không có Delivery/Shipper.**
+Hệ thống đặt món trước có hẹn giờ và bán hàng tại quầy cho cửa hàng đồ ăn nhanh.
+Đồ án môn SWP301.
+
+Điểm khác biệt so với một trang bán hàng thông thường: đơn đặt trước **không** được đưa
+xuống bếp ngay khi thanh toán. Hệ thống giữ đơn lại và chỉ đẩy xuống bếp trước giờ khách
+hẹn 20 phút — đủ để món vừa xong khi khách tới, không sớm tới mức nguội.
 
 | Tài liệu | Nội dung |
 |---|---|
-| [docs/preview-2 (1).html](docs/preview-2%20(1).html) | Phân tích hệ thống V6 — nguồn sự thật |
-| [docs/STRUCTURE.md](docs/STRUCTURE.md) | Cấu trúc dự án, mapping class & URL |
-| [docs/DATABASE-PLAN.md](docs/DATABASE-PLAN.md) | Plan thi công database chi tiết |
+| [docs/preview-2 (1).html](docs/preview-2%20(1).html) | Phân tích nghiệp vụ |
+| [docs/STRUCTURE.md](docs/STRUCTURE.md) | Kiến trúc, luồng nghiệp vụ, bảng địa chỉ |
+| [docs/DATABASE-PLAN.md](docs/DATABASE-PLAN.md) | Thiết kế cơ sở dữ liệu và lý do từng quyết định |
+| [database/README.md](database/README.md) | Cách dựng cơ sở dữ liệu |
 
 ## Công nghệ
 
-| Thành phần | Lựa chọn |
-|---|---|
-| Backend | Java Servlet (MVC 3 lớp: Controller → Service → DAO) |
-| View | JSP + JSTL |
-| Database | SQL Server (JDBC + PreparedStatement) |
-| Server | Apache Tomcat 9.x |
-| Build | Maven (WAR) |
-| Pool | HikariCP |
+Java 17 · Servlet 4 · JSTL · SQL Server (JDBC thuần) · Tomcat 9 · Maven · HikariCP · bcrypt · ZXing
 
-## Luồng nghiệp vụ chính
+Không dùng framework: toàn bộ tầng điều khiển, truy cập dữ liệu và giao diện viết tay
+để thấy rõ cách MVC ba tầng vận hành.
 
-```
-ONLINE_PREORDER
-  Login → Cart → Chọn pickup_time (≥ now+30') → Thanh toán online (PAID)
-       → System auto CONFIRMED + sinh Pickup Code
-       → Chờ tới kitchen_release_at (= pickup_time − 20')
-       → Scheduler release sang KDS (idempotent)
-       → Kitchen: WAITING → PREPARING → READY
-       → Notification ORDER_READY (kèm pickup_time + code/QR)
-       → Cashier verify code/QR → Handoff → COMPLETED
+## Chạy thử
 
-POS
-  Walk-in → Cashier tạo Order → Thu Cash/Online tại quầy
-       → CONFIRMED + release KDS ngay → READY → Handoff → COMPLETED
+```bash
+# 1. Dựng cơ sở dữ liệu (tạo bảng + dữ liệu mẫu, chạy lại được nhiều lần)
+sqlcmd -S localhost -U sa -P '<mật khẩu>' -C -i database/FastFoodPreorder.sql
+
+# 2. Sửa src/main/resources/db.properties cho khớp máy chủ SQL Server của bạn
+
+# 3. Đóng gói và triển khai
+mvn clean package
+cp target/fastfood.war $TOMCAT_HOME/webapps/
 ```
 
-## Cài đặt
+Mở http://localhost:8080/fastfood/
 
-1. **Database** — chạy một file duy nhất trong SSMS (F5) hoặc:
-   ```bash
-   sqlcmd -S localhost -U sa -P '<password>' -C -i database/FastFoodPreorder.sql
-   ```
-   File tự tạo lại toàn bộ bảng + dữ liệu mẫu. Chi tiết: [database/README.md](database/README.md)
-2. **Cấu hình kết nối** — sửa `src/main/resources/db.properties` (url, username, password).
-3. **Build & deploy**
-   ```bash
-   mvn clean package
-   # copy target/fastfood.war vào <TOMCAT_HOME>/webapps/
-   ```
-4. Truy cập `http://localhost:8080/fastfood/`
+## Tài khoản mẫu
 
-## Tài khoản demo (password: `123456`)
+Mật khẩu tất cả: **`123456`**
 
-| Role | Email |
-|---|---|
-| Customer | customer1@gmail.com |
-| Cashier | cashier1@fastfood.vn |
-| Kitchen | kitchen1@fastfood.vn |
-| Admin | admin@fastfood.vn |
+| Vai trò | Email | Vào được gì |
+|---|---|---|
+| Khách hàng | customer1@gmail.com | Thực đơn, giỏ hàng, đặt trước, theo dõi đơn |
+| Thu ngân | cashier1@fastfood.vn | Bán tại quầy, điều phối đơn, giao món |
+| Bếp | kitchen1@fastfood.vn | Hàng chờ, nhận món, báo sự cố |
+| Quản trị | admin@fastfood.vn | Báo cáo, quản lý món và tài khoản, nhật ký |
 
-## Trạng thái hiện tại
+## Đường đi thử nhanh
 
-Đã dựng **khung dự án**: cấu trúc thư mục, `pom.xml`, `web.xml`, database schema + seed,
-enum nghiệp vụ đã khóa (mục 18), skeleton JSP cho 20 màn hình theo mã CUS/STF/KIT/ADM.
+1. Đăng nhập `customer1`, thêm món vào giỏ, đặt trước với giờ hẹn **sau 35 phút**.
+2. Ở trang thanh toán giả lập, bấm **Thanh toán thành công** → đơn được xác nhận và
+   sinh mã nhận hàng. Bấm nút đó **lần nữa** để thấy hệ thống nhận ra giao dịch trùng
+   và không ghi nhận tiền thêm lần thứ hai.
+3. Đăng nhập `kitchen1` → **hàng chờ trống**, vì đơn chưa tới giờ vào bếp.
+   Đây chính là cơ chế giữ cho món không bị làm sớm.
+4. Muốn thấy ngay không phải chờ: đặt một đơn với giờ hẹn sau đúng 35 phút, rồi đợi
+   khoảng 15 phút — hoặc chỉnh `business.kitchen.prepLeadMinutes` trong
+   `src/main/resources/app.properties` lên 30 rồi khởi động lại.
+5. Bếp nhận món → đánh dấu xong → đơn tự chuyển sang sẵn sàng và khách được báo.
+6. Đăng nhập `cashier1` → tab **Chờ khách tới lấy** → mở đơn, nhập mã khách đưa để giao món.
+   Thử nhập sai mã: hệ thống từ chối và ghi lại lần thử sai vào nhật ký.
 
-Chưa implement: Entity, DAO, Service, Servlet, Filter, Scheduler, Integration —
-danh sách class và URL mapping dự kiến đã liệt kê đầy đủ trong [docs/STRUCTURE.md](docs/STRUCTURE.md).
+Dữ liệu mẫu có sẵn 11 đơn phủ đủ bảy trạng thái, gồm cả đơn khách đến muộn và đơn món
+ra trễ hẹn, nên các màn hình đều có dữ liệu ngay từ lần chạy đầu.
+
+## Quy mô
+
+| Phần | Số tệp | Số dòng |
+|---|---|---|
+| Java | 132 | ~7.800 |
+| JSP | 34 | ~2.400 |
+| SQL | 1 | ~940 |
+
+## Ngoài phạm vi
+
+Không giao hàng tận nơi, không nhiều chi nhánh, không quản lý kho, không mã giảm giá,
+không tích điểm, không hoàn tiền một phần.

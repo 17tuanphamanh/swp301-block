@@ -21,7 +21,7 @@
   </c:if>
 
   <c:choose>
-    <c:when test="${cart.empty}">
+    <c:when test="${empty cart.items}">
       <div class="card empty">
         <div class="icon">🛒</div>
         Giỏ hàng đang trống.

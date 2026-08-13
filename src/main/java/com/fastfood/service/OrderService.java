@@ -418,7 +418,7 @@ public class OrderService {
         }
 
         Order order = orderDAO.findById(con, orderId);
-        auditService.logSystem(con, "ORDER", orderId, AuditAction.ITEM_READY, OrderStatus.READY.name());
+        auditService.logSystem(con, "ORDER", orderId, AuditAction.ORDER_READY, OrderStatus.READY.name());
         notificationService.notifyOrderReady(con, order);
         return true;
     }

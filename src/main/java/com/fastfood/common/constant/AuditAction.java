@@ -26,6 +26,7 @@ public final class AuditAction {
     public static final String ITEM_CLAIM        = "ITEM_CLAIM";
     public static final String ITEM_START        = "ITEM_START";
     public static final String ITEM_READY        = "ITEM_READY";
+    public static final String ORDER_READY       = "ORDER_READY";   // cả đơn đã sẵn sàng
     public static final String ISSUE_OPENED      = "ISSUE_OPENED";
     public static final String ISSUE_RESOLVED    = "ISSUE_RESOLVED";
 

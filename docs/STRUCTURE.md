@@ -1,42 +1,51 @@
-# Cấu trúc dự án — Fast Food Pre-order Pickup & POS (Baseline V6)
+# Cấu trúc dự án — Fast Food Pre-order Pickup & POS
 
-Stack: **Java Servlet + JSTL + SQL Server (JDBC)**, kiến trúc **MVC 3 lớp**.
-Mọi tên module/entity/màn hình/rule dưới đây bám theo `docs/preview-2 (1).html`.
+Java Servlet + JSTL + SQL Server, kiến trúc MVC ba tầng.
+Nguồn nghiệp vụ: [preview-2 (1).html](preview-2%20(1).html) · Thiết kế dữ liệu: [DATABASE-PLAN.md](DATABASE-PLAN.md)
 
 ---
 
-## 1. Kiến trúc MVC 3 lớp
+## 1. Kiến trúc
 
 ```
-Browser / POS Terminal / KDS Screen
+Trình duyệt · Máy bán hàng tại quầy · Màn hình bếp
         │  HTTP
         ▼
-┌───────────────────────────────────────────────┐
-│ FILTER   Encoding → Auth → Role → Ownership   │  mục 8, BR-21, NFR-01
-├───────────────────────────────────────────────┤
-│ CONTROLLER (Servlet)                          │  nhận request, validate input,
-│   com.fastfood.controller.*                   │  gọi Service, chọn view
-├───────────────────────────────────────────────┤
-│ SERVICE  ← nơi đặt BR-01..BR-21                │  transaction, state machine,
-│   com.fastfood.service.impl.*                 │  aggregate status, audit
-├───────────────────────────────────────────────┤
-│ DAO (JDBC + PreparedStatement)                │  chỉ CRUD/query, không rule
-│   com.fastfood.dao.impl.*                     │
-├───────────────────────────────────────────────┤
-│ SQL Server — FastFoodPreorder                 │
-└───────────────────────────────────────────────┘
-        ▲                              ▲
-        │                              │
-  SCHEDULER (UC-07, BR-13)      INTEGRATION (Gateway, Notification)
+┌──────────────────────────────────────────────────┐
+│ BỘ LỌC   Bảng mã → Đăng nhập → Phân quyền        │  com.fastfood.filter
+├──────────────────────────────────────────────────┤
+│ CONTROLLER  Servlet: đọc tham số, gọi Service,   │  com.fastfood.controller
+│             chọn trang hiển thị                  │
+├──────────────────────────────────────────────────┤
+│ SERVICE     Toàn bộ quy tắc nghiệp vụ và         │  com.fastfood.service
+│             ranh giới giao dịch                  │
+├──────────────────────────────────────────────────┤
+│ DAO         Chỉ câu lệnh SQL, nhận sẵn Connection│  com.fastfood.dao
+├──────────────────────────────────────────────────┤
+│ SQL Server — FastFoodPreorder                    │
+└──────────────────────────────────────────────────┘
+        ▲                          ▲
+   BỘ HẸN GIỜ                 TÍCH HỢP NGOÀI
+   com.fastfood.scheduler     com.fastfood.integration
 
-VIEW: JSP + JSTL trong /WEB-INF/views/**  (không truy cập trực tiếp được từ URL)
+HIỂN THỊ: JSP + JSTL trong /WEB-INF/views — không mở trực tiếp từ trình duyệt được
 ```
 
-**Nguyên tắc bắt buộc**
-- Controller **không** viết SQL và **không** chứa business rule.
-- Service **sở hữu** Connection và transaction; DAO nhận `Connection` để nhiều thao tác nằm chung 1 transaction (checkout, payment callback, KDS release).
-- JSP **chỉ** hiển thị; mọi tính toán trạng thái làm ở Service.
-- Mọi trang JSP nằm trong `WEB-INF` → truy cập bắt buộc đi qua Servlet + Filter (case J mục 15).
+**Ba nguyên tắc xuyên suốt**
+
+1. **Controller không viết SQL, DAO không chứa quy tắc nghiệp vụ.** Service là nơi duy nhất
+   biết cả hai, và cũng là nơi mở/đóng giao dịch.
+2. **Mọi trang JSP nằm trong `WEB-INF`.** Không có đường vào nào bỏ qua được chuỗi bộ lọc.
+3. **Quy tắc chống trùng lặp nằm trong chính câu lệnh SQL**, không phải ở kiểm tra trước khi ghi.
+
+### Vì sao dùng lớp cụ thể thay vì giao diện + lớp cài đặt
+
+DAO và Service viết thẳng thành lớp cụ thể. Mỗi lớp chỉ có một cách cài đặt, nên thêm một
+giao diện chỉ làm tăng số tệp phải mở khi lần theo một luồng nghiệp vụ.
+
+Chỗ **có** dùng giao diện là nơi thật sự cần thay thế được: `PaymentGateway` và
+`NotificationSender`. Bản chạy thử dùng lớp giả lập; đổi sang cổng thanh toán thật hay
+gửi email thật chỉ cần viết lớp mới, không đụng tới tầng Service.
 
 ---
 
@@ -44,215 +53,170 @@ VIEW: JSP + JSTL trong /WEB-INF/views/**  (không truy cập trực tiếp đư�
 
 ```
 swp301-block/
-├── pom.xml
-├── README.md
-├── .gitignore
-├── database/
-│   ├── 01_schema.sql              # 13 bảng + 2 view báo cáo + constraint theo BR
-│   └── 02_seed_data.sql           # Role, Users, Category, Product mẫu
-├── docs/
-│   ├── preview-2 (1).html         # Tài liệu phân tích V6 (nguồn sự thật)
-│   └── STRUCTURE.md               # file này
-└── src/
-    ├── main/
-    │   ├── java/com/fastfood/
-    │   │   ├── common/constant/   # enum đã khóa theo mục 18
-    │   │   ├── common/exception/
-    │   │   ├── common/util/
-    │   │   ├── config/            # DBContext, AppConfig
-    │   │   ├── model/entity/      # 13 entity ↔ 13 bảng
-    │   │   ├── model/dto/
-    │   │   ├── dao/ + dao/impl/
-    │   │   ├── service/ + service/impl/
-    │   │   ├── controller/{auth,customer,staff,kitchen,admin,api}/
-    │   │   ├── filter/
-    │   │   ├── listener/
-    │   │   ├── scheduler/
-    │   │   └── integration/{payment,notification}/
-    │   ├── resources/
-    │   │   ├── db.properties      # kết nối SQL Server
-    │   │   └── app.properties     # tham số BR-05/08/13/17, scheduler, gateway
-    │   └── webapp/
-    │       ├── index.jsp
-    │       ├── assets/{css,js,images}/
-    │       └── WEB-INF/
-    │           ├── web.xml
-    │           └── views/{layout,auth,customer,staff,kitchen,admin,error}/
-    └── test/java/com/fastfood/
+├── pom.xml                          Maven, đóng gói WAR
+├── database/FastFoodPreorder.sql    Một tệp duy nhất: bảng, chỉ mục, view, dữ liệu mẫu
+├── docs/                            Tài liệu phân tích và thiết kế
+└── src/main/
+    ├── java/com/fastfood/
+    │   ├── common/constant/   10  Hằng số và kiểu liệt kê nghiệp vụ
+    │   ├── common/exception/   7  Ngoại lệ mang sẵn thông báo cho người dùng
+    │   ├── common/util/        9  Tiện ích, đáng chú ý là DateTimeUtil và ViewFunctions
+    │   ├── config/             3  Kết nối cơ sở dữ liệu và tham số vận hành
+    │   ├── model/entity/      14  13 lớp ánh xạ 13 bảng
+    │   ├── model/dto/          6  Dữ liệu đã gộp sẵn cho tầng hiển thị
+    │   ├── dao/               15  14 lớp truy vấn + JdbcSupport
+    │   ├── service/           13  11 lớp nghiệp vụ + Tx (quản lý giao dịch)
+    │   ├── integration/        8  Cổng thanh toán, kênh gửi tin
+    │   ├── filter/             4  Ba bộ lọc chạy theo thứ tự
+    │   ├── listener/           3  Vòng đời ứng dụng
+    │   ├── scheduler/          3  Hai công việc chạy nền
+    │   └── controller/        37  28 servlet chia theo vai trò
+    ├── resources/                  db.properties · app.properties
+    └── webapp/
+        ├── assets/css/main.css
+        └── WEB-INF/
+            ├── web.xml · fastfood.tld
+            └── views/               24 trang + 4 tệp bố cục dùng chung
 ```
 
 ---
 
-## 3. Tầng Model — Entity ↔ Bảng (mục 10)
+## 3. Ba luồng nghiệp vụ đáng đọc trước
 
-| Entity (`model/entity`) | Bảng SQL Server | Ghi chú |
+### 3.1 Đặt trước — giữ đơn tới sát giờ mới đưa xuống bếp
+
+```
+Khách chọn giờ → CheckoutServlet
+     → OrderService.createOnlineOrder      đọc lại giá và tình trạng từng món
+                                           tạo đơn ở trạng thái chờ thanh toán
+     → PaymentService.startOnlinePayment   tạo bản ghi thanh toán, chuyển sang cổng
+     ← PaymentCallbackServlet              cổng gửi kết quả về
+     → PaymentService.handleCallback       kiểm chữ ký → ghi mã giao dịch (chống trùng)
+                                           → ghi nhận tiền → xác nhận đơn
+     → OrderService.confirmOnlineAfterPaid sinh mã nhận hàng, chốt giờ vào bếp
+                                           = giờ hẹn trừ 20 phút
+
+     ... đơn NẰM CHỜ, bếp chưa nhìn thấy ...
+
+     → KitchenReleaseScheduler (mỗi 30 giây)
+     → ScheduleService.releaseDueOrders    đưa xuống bếp đúng một lần
+     → KitchenService.claim / markReady    bếp làm món
+     → OrderService.recalculateStatus      món cuối xong → cả đơn sẵn sàng → báo khách
+     → OrderService.handoff                thu ngân đối chiếu mã rồi giao món
+```
+
+### 3.2 Bán tại quầy — gọn trong một giao dịch
+
+`PosServlet` giữ phiếu tạm trong phiên của thu ngân, không ghi xuống cơ sở dữ liệu.
+Bấm thu tiền thì `OrderService.createPosOrder` làm liền một mạch: lập đơn → ghi nhận
+tiền → xác nhận → đưa xuống bếp. Không có giờ hẹn, không có mã nhận hàng.
+
+### 3.3 Ba chỗ chống trùng lặp
+
+| Tình huống | Cách xử lý | Nằm ở |
 |---|---|---|
-| `Role` | `Role` | 1 Role – N User; MVP 1 User = 1 Role |
-| `User` | `Users` | `User` là từ khoá SQL Server |
-| `Category` | `Category` | disable thay vì delete |
-| `Product` | `Product` | BR-01: chỉ active + available mới order được |
-| `Cart` | `Cart` | chỉ Customer Online đã login |
-| `CartItem` | `CartItem` | |
-| `Order` | `Orders` | `Order` là từ khoá SQL Server |
-| `OrderItem` | `OrderItem` | BR-02 snapshot tên + unit_price |
-| `Payment` | `Payment` | BR-14: 1 Order – N attempt |
-| `Transaction` | `PaymentTransaction` | `Transaction` là từ khoá SQL Server |
-| `Notification` | `Notification` | ORDER_CONFIRMED / ORDER_READY |
-| `KitchenIssue` | `KitchenIssue` | OPEN / RESOLVED |
-| `AuditLog` | `AuditLog` | NFR-08, BR-20 không hard-delete |
-
-**Enum đã tạo** (`common/constant`): `OrderStatus`, `OrderSource`, `OrderItemStatus`, `PaymentMethod`, `PaymentStatus`, `RoleName`, `KdsReleaseState`, `NotificationEvent`, `AuditAction`, `BusinessRule`.
-
-> `KdsReleaseState` (SCHEDULED / RELEASED_TO_KDS) **không** phải Order Status và **không** có bảng riêng — suy ra từ `kitchen_release_at` + `released_to_kds_at` (mục 7.2). Tương tự, OVERDUE chỉ là UI flag (BR-17).
-
-**DTO dự kiến** (`model/dto`): `CartView`, `CheckoutRequest`, `PickupSlot`, `OrderDetailView`, `KdsItemView`, `PickupQueueRow`, `PaymentCallbackData`, `DashboardKpi`, `ReportFilter`, `PageResult<T>`.
+| Bộ hẹn giờ chạy lại, đưa đơn xuống bếp hai lần | `UPDATE ... WHERE released_to_kds_at IS NULL` rồi kiểm số dòng | `OrderDAO.markReleasedToKds` |
+| Cổng thanh toán gửi kết quả về hai lần | Ghi mã giao dịch có ràng buộc duy nhất; lần hai bị từ chối | `TransactionDAO.insertIfNew` |
+| Khách bấm đặt hàng hai lần | Khoá chống trùng sinh khi mở trang đặt hàng | `OrderService.createOnlineOrder` |
+| Hai đầu bếp nhận cùng một món | `UPDATE ... WHERE item_status = 'WAITING'` rồi kiểm số dòng | `OrderItemDAO.claim` |
+| Hai món cuối xong cùng lúc, đơn kẹt mãi | Khoá dòng đơn trước khi đếm món chưa xong | `OrderService.recalculateStatus` |
 
 ---
 
-## 4. Tầng DAO & Service
+## 4. Bảng địa chỉ
 
-### DAO (`dao` + `dao/impl`)
-`RoleDAO`, `UserDAO`, `CategoryDAO`, `ProductDAO`, `CartDAO`, `CartItemDAO`, `OrderDAO`, `OrderItemDAO`, `PaymentDAO`, `TransactionDAO`, `NotificationDAO`, `KitchenIssueDAO`, `AuditLogDAO`, `ReportDAO`.
+Servlet khai báo bằng `@WebServlet`. Trang JSP nằm trong `/WEB-INF/views/`.
 
-Query đáng chú ý:
-- `OrderDAO.findDueForRelease(now)` — quét đơn CONFIRMED có `kitchen_release_at <= now` và `released_to_kds_at IS NULL` (UC-07).
-- `OrderDAO.markReleased(orderId)` — `UPDATE ... WHERE released_to_kds_at IS NULL` → idempotent ở tầng SQL (BR-09, NFR-05).
-- `OrderDAO.findExpiredCandidates()` — PENDING_PAYMENT quá 15 phút (BR-13).
-- `TransactionDAO.existsByExternalId(id)` — chặn duplicate callback (BR-14, NFR-06).
-- `OrderItemDAO.findReleasedQueue()` — chỉ item thuộc Order đã `released_to_kds_at` (KIT-01).
-
-### Service (`service` + `service/impl`)
-
-| Service | Trách nhiệm | Rules |
+### Không cần đăng nhập
+| Địa chỉ | Servlet | Trang |
 |---|---|---|
-| `AuthService` | login/logout, hash password, RBAC context | UC-01, NFR-01 |
-| `MenuService` | menu, tìm kiếm, revalidate availability/price | BR-01, BR-06 |
-| `CartService` | thao tác Cart/CartItem | UC-03 |
-| `OrderService` | tạo Online/POS Order, cancel, complete, aggregate status | BR-02..BR-05, BR-11, BR-12, BR-16, NFR-07 |
-| `PaymentService` | attempt, callback idempotent, full refund | BR-04, BR-14, UC-23, NFR-06 |
-| `ScheduleService` | tính `kitchen_release_at`, release sang KDS, expire | BR-08, BR-09, BR-13 |
-| `KitchenService` | claim, WAITING→PREPARING→READY, KitchenIssue | BR-11, BR-18, BR-19 |
-| `PickupService` | sinh & verify Pickup Code/QR, handoff | BR-15, BR-16, UC-15/16 |
-| `NotificationService` | ORDER_CONFIRMED / ORDER_READY | module 6 |
-| `ReportService` | KPI mục 13 | UC-20 |
-| `AuditService` | ghi AuditLog cho mọi sự kiện | NFR-08 |
-| `AdminService` | Product/Category/User/Role | UC-18, UC-19 |
+| `/menu` | MenuServlet | customer/menu.jsp |
+| `/product/detail` | ProductDetailServlet | customer/product-detail.jsp |
+| `/login` `/logout` `/register` | LoginServlet · LogoutServlet · RegisterServlet | auth/ |
+| `/payment/callback` | PaymentCallbackServlet | (cổng thanh toán gọi vào) |
 
----
-
-## 5. Tầng Controller — bảng URL mapping
-
-Servlet khai báo bằng `@WebServlet`. `views` = JSP forward tới.
-
-### Auth
-| URL | Servlet | Method | View |
-|---|---|---|---|
-| `/login` | `LoginServlet` | GET, POST | `auth/login.jsp` |
-| `/logout` | `LogoutServlet` | GET | → `/menu` |
-| `/register` | `RegisterServlet` | GET, POST | `auth/register.jsp` |
-
-### Customer — CUS-01..05
-| URL | Servlet | Màn hình | View |
-|---|---|---|---|
-| `/menu` | `MenuServlet` | CUS-01 | `customer/menu.jsp` |
-| `/product/detail` | `ProductDetailServlet` | CUS-01 | `customer/product-detail.jsp` |
-| `/cart` | `CartServlet` | CUS-02 | `customer/cart.jsp` |
-| `/checkout` | `CheckoutServlet` | CUS-03 | `customer/checkout.jsp` |
-| `/payment/start` | `PaymentStartServlet` | CUS-03 | → gateway |
-| `/payment/return` | `PaymentReturnServlet` | CUS-03 | `customer/payment-result.jsp` |
-| `/order/track` | `OrderTrackingServlet` | CUS-04 | `customer/order-tracking.jsp` |
-| `/order/cancel` | `OrderCancelServlet` | CUS-04 | POST, BR-12 |
-| `/order/history` | `OrderHistoryServlet` | CUS-05 | `customer/order-history.jsp` |
-| `/profile` | `ProfileServlet` | CUS-05 | `customer/profile.jsp` |
-
-### Staff / Cashier — STF-01..05
-| URL | Servlet | Màn hình | View |
-|---|---|---|---|
-| `/staff/pos` | `PosOrderServlet` | STF-01 | `staff/pos.jsp` |
-| `/staff/orders` | `OrderDashboardServlet` | STF-02 | `staff/order-dashboard.jsp` |
-| `/staff/order/detail` | `StaffOrderDetailServlet` | STF-03 | `staff/order-detail.jsp` |
-| `/staff/pickup/verify` | `PickupVerifyServlet` | STF-03 | `staff/pickup-verify.jsp` |
-| `/staff/order/complete` | `HandoffServlet` | STF-03 | POST, BR-15/16 |
-| `/staff/payment` | `StaffPaymentServlet` | STF-04 | `staff/payment.jsp` |
-| `/staff/payment/refund` | `RefundServlet` | STF-04 | POST, UC-23 |
-| `/staff/receipt` | `ReceiptServlet` | STF-04 | UC-17 |
-| `/staff/history` | `StaffHistoryServlet` | STF-05 | `staff/history.jsp` |
-
-### Kitchen — KIT-01..05
-| URL | Servlet | Màn hình | View |
-|---|---|---|---|
-| `/kitchen/queue` | `KdsQueueServlet` | KIT-01 | `kitchen/kds-queue.jsp` |
-| `/kitchen/item/claim` | `ClaimItemServlet` | KIT-01 | POST, UC-11 |
-| `/kitchen/my-tasks` | `MyTasksServlet` | KIT-02 | `kitchen/my-tasks.jsp` |
-| `/kitchen/item/ready` | `MarkReadyServlet` | KIT-02 | POST, UC-12 |
-| `/kitchen/item/detail` | `KitchenItemDetailServlet` | KIT-03 | `kitchen/item-detail.jsp` |
-| `/kitchen/issue` | `KitchenIssueServlet` | KIT-04 | `kitchen/issue.jsp` |
-| `/kitchen/history` | `KitchenHistoryServlet` | KIT-05 | `kitchen/history.jsp` |
-
-### Admin — ADM-01..05
-| URL | Servlet | Màn hình | View |
-|---|---|---|---|
-| `/admin/dashboard` | `AdminDashboardServlet` | ADM-01 | `admin/dashboard.jsp` |
-| `/admin/products` | `ProductManageServlet` | ADM-02 | `admin/product.jsp` |
-| `/admin/categories` | `CategoryManageServlet` | ADM-03 | `admin/category.jsp` |
-| `/admin/users` | `UserManageServlet` | ADM-04 | `admin/user.jsp` |
-| `/admin/audit` | `AuditServlet` | ADM-05 | `admin/audit.jsp` |
-| `/admin/report/export` | `ReportExportServlet` | ADM-05 | file |
-
-### API (JSON, cho AJAX / hệ thống ngoài)
-| URL | Servlet | Mục đích |
+### Khách hàng
+| Địa chỉ | Servlet | Trang |
 |---|---|---|
-| `/api/kds/queue` | `KdsApiServlet` | KDS polling — NFR-04 (2 giây) |
-| `/api/order/status` | `OrderStatusApiServlet` | CUS-04 cập nhật trạng thái |
-| `/payment/callback` | `PaymentCallbackServlet` | Gateway webhook — **idempotent**, NFR-06 |
+| `/cart` | CartServlet | customer/cart.jsp |
+| `/checkout` | CheckoutServlet | customer/checkout.jsp |
+| `/payment/start` | PaymentStartServlet | → cổng thanh toán |
+| `/payment/gateway` | PaymentGatewayServlet | customer/payment-gateway.jsp |
+| `/order/track` | OrderTrackingServlet | customer/order-tracking.jsp |
+| `/order/history` | OrderHistoryServlet | customer/order-history.jsp |
+| `/profile` | ProfileServlet | customer/profile.jsp |
+
+### Thu ngân — `/staff/*`
+| Địa chỉ | Servlet | Trang |
+|---|---|---|
+| `/staff/pos` | PosServlet | staff/pos.jsp |
+| `/staff/orders` | OrderDashboardServlet | staff/order-dashboard.jsp |
+| `/staff/order/detail` | OrderDetailServlet | staff/order-detail.jsp |
+| `/staff/pickup/verify` | PickupVerifyServlet | staff/pickup-verify.jsp |
+| `/staff/history` | StaffHistoryServlet | staff/history.jsp |
+
+### Bếp — `/kitchen/*`
+| Địa chỉ | Servlet | Trang |
+|---|---|---|
+| `/kitchen/queue` | KdsQueueServlet | kitchen/kds-queue.jsp |
+| `/kitchen/my-tasks` | MyTasksServlet | kitchen/my-tasks.jsp |
+| `/kitchen/item` | KitchenItemServlet | kitchen/item-detail.jsp |
+| `/kitchen/issue` | KitchenIssueServlet | kitchen/issue.jsp |
+| `/kitchen/history` | KitchenHistoryServlet | kitchen/history.jsp |
+
+### Quản trị — `/admin/*`
+| Địa chỉ | Servlet | Trang |
+|---|---|---|
+| `/admin/dashboard` | AdminDashboardServlet | admin/dashboard.jsp |
+| `/admin/products` | ProductManageServlet | admin/product.jsp |
+| `/admin/categories` | CategoryManageServlet | admin/category.jsp |
+| `/admin/users` | UserManageServlet | admin/user.jsp |
+| `/admin/audit` | AuditServlet | admin/audit.jsp |
+
+### Dữ liệu JSON cho trang tự cập nhật
+| Địa chỉ | Servlet | Dùng ở |
+|---|---|---|
+| `/api/kds/queue` | KdsApiServlet | Màn hình bếp, hỏi lại mỗi 5 giây |
+| `/api/order/status` | OrderStatusApiServlet | Trang theo dõi đơn, hỏi lại mỗi 10 giây |
 
 ---
 
-## 6. Filter / Listener / Scheduler / Integration
+## 5. Bảo mật
 
-### Filter (`filter`) — thứ tự chuỗi
-1. `EncodingFilter` (`/*`) — UTF-8 cho tiếng Việt.
-2. `AuthenticationFilter` — chặn khu vực cần login; Online Pre-order bắt buộc login (BR-04).
-3. `RoleAuthorizationFilter` — enforce ma trận mục 8 theo prefix URL (`/staff/*` → CASHIER, `/kitchen/*` → KITCHEN, `/admin/*` → ADMIN).
-4. `OwnershipFilter` — BR-21: Customer chỉ truy cập Order/Payment của mình; sai → 403/404 (case J).
-
-### Listener (`listener`)
-- `AppContextListener` — khởi tạo `DBContext` pool, nạp `AppConfig`, start scheduler; shutdown sạch khi undeploy (NFR-10).
-- `SessionListener` — theo dõi phiên đăng nhập.
-
-### Scheduler (`scheduler`) — `ScheduledExecutorService`
-- `KitchenReleaseScheduler` — chạy mỗi 30s: tìm Order CONFIRMED tới hạn → release sang KDS, ghi `released_to_kds_at` **một lần** (BR-09, NFR-03/05).
-- `PaymentExpiryScheduler` — chạy mỗi 60s: PENDING_PAYMENT quá 15 phút → EXPIRED (BR-13).
-
-### Integration (`integration`)
-- `payment/PaymentGateway` (interface) + `MockPaymentGateway` — sandbox; callback khớp `external_transaction_id` UNIQUE.
-- `notification/NotificationSender` (interface) + `MockNotificationSender`, `EmailNotificationSender`.
+| Lớp | Thực hiện | Chặn được gì |
+|---|---|---|
+| `AuthenticationFilter` | Liệt kê trang công khai, còn lại bắt đăng nhập | Thêm màn hình mới mà quên khai báo thì bị bắt đăng nhập thừa, không lộ dữ liệu |
+| `RoleAuthorizationFilter` | Phân quyền theo tiền tố địa chỉ | Gõ thẳng `/admin/...` vào trình duyệt |
+| Kiểm tra chủ sở hữu | Điều kiện `customer_id` ngay trong câu truy vấn | Khách xem đơn của người khác. Trả về "không tìm thấy" để không lộ mã đơn nào có thật |
+| Mật khẩu | bcrypt cost 10 | Lộ cơ sở dữ liệu vẫn không đọc được mật khẩu |
+| Câu lệnh SQL | `PreparedStatement` toàn bộ | Chèn mã SQL qua ô tìm kiếm |
+| Phiên đăng nhập | Cấp phiên mới sau khi đăng nhập | Chiếm phiên đã biết trước |
+| Chữ ký cổng thanh toán | Kiểm tra trước khi ghi nhận tiền | Gọi thẳng địa chỉ nhận kết quả để tự xác nhận đơn |
 
 ---
 
-## 7. Các điểm dễ sai — cần bám đúng khi code
+## 6. Cách chạy
 
-| Rủi ro | Ràng buộc bắt buộc |
-|---|---|
-| Đưa đơn Online vào bếp quá sớm | Chỉ release khi `now >= kitchen_release_at` (BR-08) |
-| Duplicate kitchen task khi scheduler chạy lại | `UPDATE ... WHERE released_to_kds_at IS NULL` (BR-09) |
-| Duplicate doanh thu khi gateway gọi callback nhiều lần | `external_transaction_id` UNIQUE + kiểm tra trước khi transition (BR-14) |
-| Cashier tự set PREPARING/READY | Chỉ Kitchen đổi OrderItem; Order status là **aggregate** (BR-11) |
-| Giao nhầm đơn | Handoff chỉ khi READY + PAID + code hợp lệ, verify **server-side** (BR-15, NFR-01) |
-| Khách đến muộn | Chỉ gắn flag OVERDUE, **không** auto cancel/refund/complete (BR-17) |
-| Xoá dữ liệu giao dịch | Không hard-delete Order/Payment/Transaction/AuditLog (BR-20) |
-| Giá đổi sau khi khách bỏ vào giỏ | Revalidate ngay trước payment + snapshot khi tạo OrderItem (BR-06, BR-02) |
+```bash
+# 1. Cơ sở dữ liệu
+sqlcmd -S localhost -U sa -P '<mật khẩu>' -C -i database/FastFoodPreorder.sql
+
+# 2. Sửa src/main/resources/db.properties cho khớp máy chủ SQL Server
+
+# 3. Đóng gói và triển khai
+mvn clean package
+cp target/fastfood.war $TOMCAT_HOME/webapps/
+```
+
+Mở `http://localhost:8080/fastfood/` — mật khẩu mọi tài khoản mẫu là `123456`.
+
+Cấu hình hiện tại dùng **Tomcat 9** (`javax.servlet`). Chạy Tomcat 10 trở lên phải đổi
+phụ thuộc sang `jakarta.*` và đổi toàn bộ lệnh `import javax.servlet.*`.
 
 ---
 
-## 8. Ngoài phạm vi (mục 17) — **không** tạo trong dự án
+## 7. Ngoài phạm vi — không có trong mã nguồn
 
-Không có `DeliveryAddress` / `Shipment` / `Shipper`, không delivery fee, không `OUT_FOR_DELIVERY`/`DELIVERED`, không multi-branch, không Inventory/Supplier, không Voucher/Loyalty/Review, không partial refund, không guest checkout Online, không Pay at Counter cho ONLINE_PREORDER.
-
----
-
-## 9. Ghi chú môi trường
-
-- Cấu hình hiện tại dùng **Tomcat 9.x** (`javax.servlet`). Nếu chạy **Tomcat 10+**, đổi dependency sang `jakarta.servlet-api` + `jakarta.servlet.jsp.jstl`, và đổi toàn bộ `import javax.servlet.*` → `jakarta.servlet.*`.
-- Chạy DB: thực thi `database/01_schema.sql` rồi `database/02_seed_data.sql`.
-- Sửa `src/main/resources/db.properties` cho đúng instance SQL Server trước khi chạy.
+Không giao hàng tận nơi, không nhiều chi nhánh, không quản lý kho và nhà cung cấp,
+không mã giảm giá, không tích điểm, không đánh giá món, không hoàn tiền một phần,
+không đặt trước mà không đăng nhập, không trả tiền mặt cho đơn đặt trước.

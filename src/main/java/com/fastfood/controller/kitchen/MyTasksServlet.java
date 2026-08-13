@@ -34,11 +34,13 @@ public class MyTasksServlet extends BaseServlet {
         User user = requireUser(req);
         int itemId = WebUtil.getInt(req, "orderItemId", 0);
         String back = WebUtil.getString(req, "returnTo");
+        // Đặt thông báo bên trong thao tác và truyền null ở tham số sau, nếu không
+        // thông báo chung sẽ ghi đè lên thông báo "cả đơn đã sẵn sàng".
         handle(req, resp, () -> {
             boolean orderReady = kitchenService.markReady(itemId, user.getUserId());
-            if (orderReady) {
-                WebUtil.flashSuccess(req, "Món đã xong. Cả đơn đã sẵn sàng, khách đã được báo.");
-            }
-        }, "Đã đánh dấu món hoàn thành.", back != null ? back : "/kitchen/my-tasks");
+            WebUtil.flashSuccess(req, orderReady
+                    ? "Món đã xong. Cả đơn đã sẵn sàng, khách đã được báo."
+                    : "Đã đánh dấu món hoàn thành.");
+        }, null, back != null ? back : "/kitchen/my-tasks");
     }
 }
