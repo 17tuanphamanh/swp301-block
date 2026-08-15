@@ -1,9 +1,10 @@
 package com.fastfood.flow;
 
+import com.fastfood.common.exception.NotFoundException;
 import com.fastfood.common.exception.ValidationException;
 import com.fastfood.model.entity.User;
-import com.fastfood.service.AdminService;
-import com.fastfood.service.AuthService;
+import com.fastfood.service.admin.AdminService;
+import com.fastfood.service.auth.AuthService;
 import com.fastfood.testsupport.IntegrationTestBase;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -62,7 +63,7 @@ class AdminAccountIT extends IntegrationTestBase {
         assertTrue(loggedIn.isMustChangePassword(),
                 "Đối tượng trả về lúc đăng nhập phải mang theo cờ, vì bộ lọc đọc từ phiên");
 
-        assertThrows(ValidationException.class, () -> authService.login(email, "MatKhau123"),
+        assertThrows(ValidationException.class, () -> authService.login(email, "MatKhauGoc7"),
                 "Mật khẩu cũ phải hết tác dụng ngay");
     }
 
@@ -81,7 +82,7 @@ class AdminAccountIT extends IntegrationTestBase {
         int target = newStaff();
 
         assertThrows(ValidationException.class,
-                () -> authService.changePassword(target, "MatKhau123", "MatKhauMoi9", "MatKhauKhac9"));
+                () -> authService.changePassword(target, "MatKhauGoc7", "MatKhauMoi9", "MatKhauKhac9"));
     }
 
     @Test
@@ -121,7 +122,7 @@ class AdminAccountIT extends IntegrationTestBase {
         adminService.setUserStatus(userId(ADMIN), target, "LOCKED");
 
         assertThrows(com.fastfood.common.exception.BusinessException.class,
-                () -> authService.login(email, "MatKhau123"));
+                () -> authService.login(email, "MatKhauGoc7"));
     }
 
     @Test
@@ -134,6 +135,76 @@ class AdminAccountIT extends IntegrationTestBase {
                 "Xoá tài khoản sẽ làm mồ côi mọi đơn mà người đó từng xử lý");
     }
 
+    // ------------------------------------------------------------------ sửa thông tin
+
+    @Test
+    @DisplayName("Quản trị viên sửa được họ tên và số điện thoại của nhân viên")
+    void adminCanFixStaffInfo() {
+        int target = newStaff();
+
+        adminService.updateUserInfo(userId(ADMIN), target, "Nguyen Van Sua", "0911222333");
+
+        User after = adminService.findUser(target);
+        assertEquals("Nguyen Van Sua", after.getFullName());
+        assertEquals("0911222333", after.getPhone());
+    }
+
+    @Test
+    @DisplayName("Sửa thông tin không đụng tới email đăng nhập")
+    void editingInfoLeavesTheLoginIdentityAlone() {
+        int target = newStaff();
+        String emailBefore = emailOf(target);
+
+        adminService.updateUserInfo(userId(ADMIN), target, "Ten Khac", "0900000001");
+
+        assertEquals(emailBefore, emailOf(target),
+                "Email là tên đăng nhập — đổi nó là đổi người vào được tài khoản");
+    }
+
+    @Test
+    @DisplayName("Sửa thông tin không làm mất mật khẩu đang dùng")
+    void editingInfoKeepsThePassword() {
+        int target = newStaff();
+        String email = emailOf(target);
+
+        adminService.updateUserInfo(userId(ADMIN), target, "Ten Moi", "0900000002");
+
+        User loggedIn = authService.login(email, "MatKhauGoc7");
+        assertEquals(target, loggedIn.getUserId(),
+                "Sửa một dòng thông tin mà phải cấp lại mật khẩu thì không ai dám dùng");
+    }
+
+    @Test
+    @DisplayName("Bỏ trống họ tên thì bị từ chối")
+    void blankNameIsRejected() {
+        int target = newStaff();
+
+        assertThrows(ValidationException.class,
+                () -> adminService.updateUserInfo(userId(ADMIN), target, "   ", "0900000000"));
+    }
+
+    @Test
+    @DisplayName("Sửa tài khoản không tồn tại thì báo không tìm thấy, không im lặng bỏ qua")
+    void editingMissingAccountFails() {
+        assertThrows(NotFoundException.class,
+                () -> adminService.updateUserInfo(userId(ADMIN), 999_999, "Khong Co That", "0900000000"),
+                "Báo thành công trong khi không ghi được gì là kiểu hỏng khó phát hiện nhất");
+    }
+
+    @Test
+    @DisplayName("Sửa thông tin có ghi lại nhật ký kèm tên cũ")
+    void editingIsAudited() {
+        int target = newStaff();
+
+        adminService.updateUserInfo(userId(ADMIN), target, "Ten Sau Khi Sua", "0900000003");
+
+        assertEquals(1, count(
+                "SELECT COUNT(*) FROM dbo.AuditLog WHERE entity_type = 'USER' AND entity_id = ? "
+                        + "AND old_value = ? AND new_value = ?",
+                target, "Nhan Vien Test", "Ten Sau Khi Sua"),
+                "Nhật ký cần cả hai đầu để đối chứng, không chỉ giá trị mới");
+    }
+
     // ------------------------------------------------------------------ tiện ích
 
     /** Một tài khoản nhân viên mới toanh cho mỗi bài, để các bài không giẫm lên nhau. */
@@ -142,7 +213,7 @@ class AdminAccountIT extends IntegrationTestBase {
         Integer cashierRole = scalar(Integer.class, "SELECT role_id FROM dbo.Role WHERE name = 'CASHIER'");
 
         adminService.createStaff(userId(ADMIN), "Nhan Vien Test", email, "0900000000",
-                "MatKhau123", cashierRole);
+                "MatKhauGoc7", cashierRole);
 
         return userId(email);
     }

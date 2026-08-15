@@ -16,13 +16,16 @@
           <tbody>
             <c:forEach var="i" items="${openIssues}">
               <tr>
-                <td><c:out value="${i.productName}"/></td>
+                <%-- Tên món dẫn thẳng tới chi tiết món: đọc một dòng sự cố xong, việc tiếp theo
+                     gần như luôn là mở món đó ra xem đang ở trạng thái nào. --%>
+                <td><a href="${ctx}/kitchen/item?id=${i.orderItemId}"><c:out value="${i.productName}"/></a></td>
                 <td>#${i.orderId}</td>
                 <td><span class="tag tag-red">${ff:issueType(i.issueType)}</span></td>
                 <td class="small"><c:out value="${i.description}"/></td>
                 <td class="small muted"><c:out value="${i.createdByName}"/><br>${ff:time(i.createdAt)}</td>
                 <td class="center">
                   <form method="post" action="${ctx}/kitchen/issue" class="inline-form">
+                    <input type="hidden" name="_csrf" value="${csrfToken}">
                     <input type="hidden" name="action" value="resolve">
                     <input type="hidden" name="issueId" value="${i.issueId}">
                     <button type="submit" class="btn btn-sm btn-green">Đã xử lý</button>
@@ -33,6 +36,7 @@
                     <a class="btn btn-sm" href="${ctx}/kitchen/issue?edit=${i.issueId}">Sửa</a>
                     <form method="post" action="${ctx}/kitchen/issue" class="inline-form"
                           data-confirm="Thu hồi sự cố báo nhầm này? Bản ghi vẫn được giữ trong nhật ký.">
+                      <input type="hidden" name="_csrf" value="${csrfToken}">
                       <input type="hidden" name="action" value="cancel">
                       <input type="hidden" name="issueId" value="${i.issueId}">
                       <button type="submit" class="btn btn-sm btn-danger">Thu hồi</button>
@@ -53,18 +57,19 @@
         <table>
           <thead><tr><th scope="col">Thời điểm</th><th scope="col">Món</th><th scope="col">Loại</th><th scope="col">Trạng thái</th></tr></thead>
           <tbody>
-            <c:forEach var="i" items="${recentIssues}">
-              <c:if test="${not i.open}">
-                <tr>
-                  <td class="small muted">${ff:dateTime(i.createdAt)}</td>
-                  <td><c:out value="${i.productName}"/></td>
-                  <td>${ff:issueType(i.issueType)}</td>
-                  <%-- Tách hai đường ra chứ không gộp thành "đã đóng": sự cố có thật đã xử lý
-                       xong và sự cố báo nhầm là hai chuyện khác hẳn khi đọc lại về sau. --%>
-                  <td><span class="tag ${ff:issueStatusTag(i.status)}">${ff:issueStatus(i.status)}</span></td>
-                </tr>
-              </c:if>
+            <c:forEach var="i" items="${closedIssues}">
+              <tr>
+                <td class="small muted">${ff:dateTime(i.createdAt)}</td>
+                <td><a href="${ctx}/kitchen/item?id=${i.orderItemId}"><c:out value="${i.productName}"/></a></td>
+                <td>${ff:issueType(i.issueType)}</td>
+                <%-- Tách hai đường ra chứ không gộp thành "đã đóng": sự cố có thật đã xử lý
+                     xong và sự cố báo nhầm là hai chuyện khác hẳn khi đọc lại về sau. --%>
+                <td><span class="tag ${ff:issueStatusTag(i.status)}">${ff:issueStatus(i.status)}</span></td>
+              </tr>
             </c:forEach>
+            <c:if test="${empty closedIssues}">
+              <tr><td colspan="4" class="center muted cell-empty">Chưa có sự cố nào khép lại gần đây.</td></tr>
+            </c:if>
           </tbody>
         </table>
       </div>
@@ -82,6 +87,7 @@
         ${ff:issueType(editing.issueType)}
       </p>
       <form method="post" action="${ctx}/kitchen/issue">
+        <input type="hidden" name="_csrf" value="${csrfToken}">
         <input type="hidden" name="action" value="update">
         <input type="hidden" name="issueId" value="${editing.issueId}">
         <div class="field">
@@ -112,12 +118,34 @@
     </c:if>
     <div class="card">
       <h2>Báo sự cố mới</h2>
+      <%-- Bếp rỗng thì không có món nào để báo. Hiện lời nhắc thay vì một ô chọn trống:
+           ô chọn rỗng kèm required chỉ dẫn tới một biểu mẫu bấm gửi mãi không đi. --%>
+      <c:choose>
+      <c:when test="${empty kitchenItems}">
+        <p class="small muted">
+          Hiện không có món nào trong bếp. Sự cố luôn gắn với một món cụ thể, nên chỉ báo được
+          khi có món đang chờ làm, đang làm dở, hoặc đã xong mà chưa ra quầy.
+        </p>
+      </c:when>
+      <c:otherwise>
       <form method="post" action="${ctx}/kitchen/issue">
+        <input type="hidden" name="_csrf" value="${csrfToken}">
         <div class="field">
-          <label for="orderItemId">Mã món cần báo</label>
-          <input type="number" id="orderItemId" name="orderItemId"
-                 value="${orderItemId > 0 ? orderItemId : ''}" required>
-          <p class="small muted mt">Lấy từ màn hình chi tiết món.</p>
+          <label for="orderItemId">Món gặp sự cố</label>
+          <%-- Ô chọn chứ không phải ô số như trước: mã món là con số nội bộ, không có trên
+               phiếu hay trên món, nên bắt đầu bếp gõ tay là bắt họ nhớ một thứ không nhìn
+               thấy được. Danh sách gồm cả món của người khác — sự cố là chuyện của cả bếp. --%>
+          <select id="orderItemId" name="orderItemId" required>
+            <c:forEach var="v" items="${kitchenItems}">
+              <option value="${v.item.orderItemId}"
+                      ${v.item.orderItemId eq orderItemId ? 'selected' : ''}>
+                Đơn #${v.item.orderId} · <c:out value="${v.item.productNameSnapshot}"/>
+                ×${v.item.quantity} — ${ff:itemStatus(v.item.itemStatus)}<c:if
+                  test="${not empty v.item.assignedToName}"> · <c:out value="${v.item.assignedToName}"/></c:if>
+              </option>
+            </c:forEach>
+          </select>
+          <p class="small muted mt">Món đang chờ làm, đang làm dở, hoặc đã xong mà chưa ra quầy.</p>
         </div>
         <div class="field">
           <label for="issueType">Loại sự cố</label>
@@ -138,6 +166,8 @@
         </div>
         <button type="submit" class="btn btn-primary btn-block">Ghi nhận sự cố</button>
       </form>
+      </c:otherwise>
+      </c:choose>
     </div>
     </div>
     </c:otherwise>

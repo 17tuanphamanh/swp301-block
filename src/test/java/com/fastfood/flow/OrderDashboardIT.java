@@ -1,7 +1,7 @@
 package com.fastfood.flow;
 
 import com.fastfood.model.entity.Order;
-import com.fastfood.service.OrderService;
+import com.fastfood.service.staff.StaffOrderService;
 import com.fastfood.testsupport.IntegrationTestBase;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -26,7 +26,7 @@ class OrderDashboardIT extends IntegrationTestBase {
 
     private static final List<String> TABS = List.of("POS", "SCHEDULED", "READY", "OVERDUE");
 
-    private final OrderService orderService = new OrderService();
+    private final StaffOrderService staffOrders = new StaffOrderService();
 
     @Test
     @DisplayName("Đơn đặt trước đang được bếp làm vẫn nằm trong tab đặt trước")
@@ -105,7 +105,7 @@ class OrderDashboardIT extends IntegrationTestBase {
 
     private Set<Integer> idsIn(String tab) {
         Set<Integer> ids = new HashSet<>();
-        for (Order o : orderService.dashboard(tab)) {
+        for (Order o : staffOrders.dashboard(tab)) {
             ids.add(o.getOrderId());
         }
         return ids;

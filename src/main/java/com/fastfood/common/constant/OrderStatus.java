@@ -31,15 +31,18 @@ public enum OrderStatus {
     /** Online checkout không PAID trong payment window 15 phút (BR-13). */
     EXPIRED;
 
-    /** BR-12: chỉ CONFIRMED mới được xét normal cancel. */
-    public boolean isCancellable() {
-        return this == CONFIRMED;
-    }
-
-    /** BR-15/BR-16: chỉ READY mới được handoff. */
-    public boolean isHandoffable() {
-        return this == READY;
-    }
+    /*
+     * Ở đây KHÔNG có isCancellable() và isHandoffable().
+     *
+     * Cả hai từng tồn tại và cùng nói sai: "chỉ CONFIRMED mới huỷ được" bỏ sót đơn còn chờ
+     * thanh toán, mà đó lại là đơn dễ huỷ nhất. Luật thật cần biết thêm thứ mà một giá trị
+     * liệt kê không thể biết — các món đã vào bếp chưa, quầy đã nhận đủ món chưa — nên nó nằm
+     * ở Order.isCancellable(), CustomerOrderService.cancelByCustomer và
+     * StaffOrderService.handoff, nơi có đủ dữ liệu để trả lời.
+     *
+     * Giữ lại một bản rút gọn ở đây chỉ tạo ra nguồn thứ hai, và nguồn sai lại là nguồn dễ
+     * gọi nhất.
+     */
 
     /** Trạng thái kết thúc, không transition tiếp. */
     public boolean isFinal() {

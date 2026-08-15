@@ -3,8 +3,9 @@ package com.fastfood.controller.staff;
 import com.fastfood.common.util.WebUtil;
 import com.fastfood.controller.BaseServlet;
 import com.fastfood.model.entity.User;
-import com.fastfood.service.KitchenService;
-import com.fastfood.service.OrderService;
+import com.fastfood.service.kitchen.KitchenService;
+import com.fastfood.service.staff.CounterRejectService;
+import com.fastfood.service.staff.StaffOrderService;
 
 import javax.servlet.ServletException;
 import javax.servlet.annotation.WebServlet;
@@ -32,7 +33,8 @@ import java.io.IOException;
 public class CounterServlet extends BaseServlet {
 
     private final KitchenService kitchenService = new KitchenService();
-    private final OrderService orderService = new OrderService();
+    private final StaffOrderService orderService = new StaffOrderService();
+    private final CounterRejectService rejectService = new CounterRejectService();
 
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp)
@@ -43,15 +45,45 @@ public class CounterServlet extends BaseServlet {
         req.setAttribute("readyOrders", orderService.readyOrdersForCounter());
         req.setAttribute("openIssues", kitchenService.openIssues());
         req.setAttribute("recentIssues", kitchenService.recentIssues(30));
+        // Phiếu do chính quầy lập, tách khỏi sự cố bếp: hai bên nhìn cùng một bảng
+        // nhưng cần thấy phần của mình trước.
+        req.setAttribute("counterRejects", rejectService.openRejects());
         forward(req, resp, "staff/counter.jsp");
     }
 
-    /** Xác nhận đã cầm món từ bếp. */
+    /**
+     * Hai đường ra cho một món bếp vừa đưa lên quầy: <b>nhận</b>, hoặc <b>từ chối</b>.
+     * <p>
+     * Trước đây chỉ có đường nhận. Thu ngân phát hiện món sai hay nguội thì không có nút nào để
+     * trả về bếp — họ buộc phải nhận rồi đi nói miệng, và chuyện đó không để lại dấu vết.
+     */
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         User cashier = requireUser(req);
         int itemId = WebUtil.getInt(req, "orderItemId", 0);
-        handle(req, resp, () -> orderService.receiveAtCounter(itemId, cashier.getUserId()),
-                "Đã nhận món từ bếp.", "/staff/counter");
+        int issueId = WebUtil.getInt(req, "issueId", 0);
+        String reason = WebUtil.getString(req, "reason");
+        String action = WebUtil.getString(req, "action");
+        String back = "/staff/counter";
+
+        switch (action == null ? "" : action) {
+            case "reject":
+                handle(req, resp, () -> rejectService.reject(itemId, cashier.getUserId(), reason),
+                        "Đã trả món về bếp kèm lý do. Món sẽ hiện lại ở màn hình bếp để làm lại.",
+                        back);
+                return;
+            case "rejectUpdate":
+                handle(req, resp, () -> rejectService.updateReason(issueId, cashier.getUserId(), reason),
+                        "Đã sửa lý do từ chối.", back);
+                return;
+            case "rejectCancel":
+                handle(req, resp, () -> rejectService.cancel(issueId, cashier.getUserId()),
+                        "Đã thu hồi phiếu từ chối.", back);
+                return;
+            case "receive":
+            default:
+                handle(req, resp, () -> orderService.receiveAtCounter(itemId, cashier.getUserId()),
+                        "Đã nhận món từ bếp.", back);
+        }
     }
 }

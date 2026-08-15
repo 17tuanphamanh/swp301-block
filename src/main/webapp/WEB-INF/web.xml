@@ -29,7 +29,11 @@
         <filter-class>com.fastfood.filter.AuthenticationFilter</filter-class>
     </filter>
     <filter>
-        <filter-name>03-RoleAuthorizationFilter</filter-name>
+        <filter-name>03-CsrfFilter</filter-name>
+        <filter-class>com.fastfood.filter.CsrfFilter</filter-class>
+    </filter>
+    <filter>
+        <filter-name>04-RoleAuthorizationFilter</filter-name>
         <filter-class>com.fastfood.filter.RoleAuthorizationFilter</filter-class>
     </filter>
 
@@ -41,8 +45,29 @@
         <filter-name>02-AuthenticationFilter</filter-name>
         <url-pattern>/*</url-pattern>
     </filter-mapping>
+    <!--
+      CsrfFilter đứng SAU AuthenticationFilter và TRƯỚC RoleAuthorizationFilter, cả hai vị trí
+      đều có lý do:
+
+      Sau bộ lọc đăng nhập, vì lý do khiến một yêu cầu thiếu mã chống giả mạo, phần lớn các lần,
+      lại là phiên đã hết hạn khi trang còn mở. Để bộ lọc đăng nhập gặp trước thì người dùng
+      được đưa về trang đăng nhập kèm đường quay lại — đúng thứ họ cần; đảo lại thì họ nhận
+      một trang 403 không nói được gì.
+
+      Trước bộ lọc phân quyền, vì một yêu cầu không chứng minh được là do chính người dùng phát
+      ra thì không đáng để đem đi xét quyền. Nó cũng khiến trang 403 của bộ lọc phân quyền chắc
+      chắn đã có mã trong tay để dựng nút Thoát trên thanh điều hướng.
+
+      Trải trên /* chứ không chỉ những địa chỉ ghi dữ liệu: bộ lọc vừa kiểm mã ở yêu cầu POST,
+      vừa PHÁT mã cho mọi trang được dựng ra. Thu hẹp phạm vi thì những trang nằm ngoài không
+      có mã để đặt vào biểu mẫu của chúng.
+    -->
     <filter-mapping>
-        <filter-name>03-RoleAuthorizationFilter</filter-name>
+        <filter-name>03-CsrfFilter</filter-name>
+        <url-pattern>/*</url-pattern>
+    </filter-mapping>
+    <filter-mapping>
+        <filter-name>04-RoleAuthorizationFilter</filter-name>
         <url-pattern>/staff/*</url-pattern>
         <url-pattern>/kitchen/*</url-pattern>
         <url-pattern>/admin/*</url-pattern>
@@ -57,7 +82,21 @@
         <listener-class>com.fastfood.listener.SessionListener</listener-class>
     </listener>
 
-    <!-- ===== Session ===== -->
+    <!--
+      ===== Session =====
+
+      http-only: JavaScript không đọc được cookie phiên. Một đoạn mã lạ chèn được vào trang thì
+      vẫn không lấy được mã phiên mang đi nơi khác.
+
+      tracking-mode COOKIE: cấm hẳn cách theo dõi phiên bằng cách nhét mã phiên vào địa chỉ
+      (;jsessionid=...). Mã phiên nằm trong địa chỉ là mã phiên nằm trong lịch sử trình duyệt,
+      trong nhật ký máy chủ, và trong mọi liên kết người dùng chép cho nhau.
+
+      Còn hai thuộc tính nữa của cookie — Secure và SameSite — không khai báo được ở đây:
+      đặc tả Servlet 4.0 không có chỗ cho SameSite, và Secure thì bật cứng ở đây sẽ làm hỏng
+      luôn việc chạy thử trên http ở máy cá nhân. Cả hai nằm trong META-INF/context.xml, là
+      cấu hình của Tomcat — xem ghi chú ở đó.
+    -->
     <session-config>
         <session-timeout>60</session-timeout>
         <cookie-config>

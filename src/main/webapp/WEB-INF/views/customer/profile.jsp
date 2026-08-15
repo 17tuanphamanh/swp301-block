@@ -16,6 +16,7 @@
     <div class="card">
       <h2>Thông tin cá nhân</h2>
       <form method="post" action="${ctx}/profile">
+        <input type="hidden" name="_csrf" value="${csrfToken}">
         <div class="field">
           <label for="profileEmail">Email <span class="hint">(không đổi được)</span></label>
           <input type="email" id="profileEmail" value="<c:out value="${profile.email}"/>" disabled>
@@ -39,13 +40,14 @@
     <div class="card">
       <h2>Đổi mật khẩu</h2>
       <form method="post" action="${ctx}/profile">
+        <input type="hidden" name="_csrf" value="${csrfToken}">
         <input type="hidden" name="action" value="changePassword">
         <div class="field">
           <label for="currentPassword">Mật khẩu hiện tại</label>
           <input type="password" id="currentPassword" name="currentPassword" required>
         </div>
         <div class="field">
-          <label for="newPassword">Mật khẩu mới <span class="hint">(tối thiểu 6 ký tự)</span></label>
+          <label for="newPassword">Mật khẩu mới <span class="hint">(tối thiểu 8 ký tự, có cả chữ và số)</span></label>
           <input type="password" id="newPassword" name="newPassword" required>
         </div>
         <div class="field">

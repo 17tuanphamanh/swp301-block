@@ -4,10 +4,10 @@ import com.fastfood.common.exception.AppException;
 import com.fastfood.common.util.WebUtil;
 import com.fastfood.controller.BaseServlet;
 import com.fastfood.model.entity.User;
-import com.fastfood.service.AuditService;
-import com.fastfood.service.KitchenService;
-import com.fastfood.service.OrderService;
-import com.fastfood.service.PaymentService;
+import com.fastfood.service.shared.AuditService;
+import com.fastfood.service.kitchen.KitchenService;
+import com.fastfood.service.staff.StaffOrderService;
+import com.fastfood.service.shared.PaymentService;
 
 import javax.servlet.ServletException;
 import javax.servlet.annotation.WebServlet;
@@ -24,7 +24,7 @@ import java.io.IOException;
 @WebServlet("/staff/order/detail")
 public class OrderDetailServlet extends BaseServlet {
 
-    private final OrderService orderService = new OrderService();
+    private final StaffOrderService orderService = new StaffOrderService();
     private final PaymentService paymentService = new PaymentService();
     private final AuditService auditService = new AuditService();
     private final KitchenService kitchenService = new KitchenService();

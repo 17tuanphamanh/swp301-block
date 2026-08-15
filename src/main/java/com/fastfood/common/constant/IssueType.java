@@ -18,6 +18,9 @@ public enum IssueType {
     /** Phải làm lại từ đầu. */
     REMAKE,
 
+    /** Thu ngân từ chối nhận món bếp đưa ra quầy: sai món, nguội, thiếu phần. */
+    COUNTER_REJECT,
+
     OTHER;
 
     public static IssueType from(String value) {

@@ -1,6 +1,9 @@
 package com.fastfood.model.entity;
 
+import com.fastfood.common.util.StarRating;
+
 import java.math.BigDecimal;
+import java.math.RoundingMode;
 import java.time.LocalDateTime;
 
 /**
@@ -21,6 +24,8 @@ public class Product {
     private LocalDateTime updatedAt;
 
     private String categoryName;
+    private BigDecimal ratingAverage;
+    private int ratingCount;
 
     public int getProductId() { return productId; }
     public void setProductId(int productId) { this.productId = productId; }
@@ -57,4 +62,26 @@ public class Product {
 
     /** Món chỉ đặt được khi vừa còn kinh doanh vừa còn hàng. */
     public boolean isOrderable() { return "ACTIVE".equals(status) && available; }
+
+    // ---------------------------------------------------------------- điểm đánh giá
+    // Hai giá trị dưới đây chỉ được nạp ở truy vấn thực đơn. Các truy vấn khác để trống, và
+    // isRated() trả về false — màn hình im lặng thay vì trưng ra một con số bịa.
+
+    public BigDecimal getRatingAverage() { return ratingAverage; }
+    public void setRatingAverage(BigDecimal ratingAverage) { this.ratingAverage = ratingAverage; }
+
+    public int getRatingCount() { return ratingCount; }
+    public void setRatingCount(int ratingCount) { this.ratingCount = ratingCount; }
+
+    /** Đã có ai đánh giá chưa. Món mới chưa ai chấm thì thực đơn không hiện gì ở chỗ này. */
+    public boolean isRated() { return ratingCount > 0 && ratingAverage != null; }
+
+    /** Điểm trung bình làm tròn một chữ số, ví dụ {@code 4.3}. */
+    public BigDecimal getRatingRounded() {
+        return ratingAverage == null
+                ? BigDecimal.ZERO
+                : ratingAverage.setScale(1, RoundingMode.HALF_UP);
+    }
+
+    public String getRatingStars() { return StarRating.of(ratingAverage); }
 }

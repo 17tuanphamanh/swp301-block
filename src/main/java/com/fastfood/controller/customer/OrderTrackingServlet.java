@@ -6,7 +6,8 @@ import com.fastfood.common.util.WebUtil;
 import com.fastfood.controller.BaseServlet;
 import com.fastfood.model.entity.Order;
 import com.fastfood.model.entity.User;
-import com.fastfood.service.OrderService;
+import com.fastfood.service.customer.CustomerOrderService;
+import com.fastfood.service.shared.NotificationService;
 
 import javax.servlet.ServletException;
 import javax.servlet.annotation.WebServlet;
@@ -23,7 +24,8 @@ import java.io.IOException;
 @WebServlet("/order/track")
 public class OrderTrackingServlet extends BaseServlet {
 
-    private final OrderService orderService = new OrderService();
+    private final CustomerOrderService orderService = new CustomerOrderService();
+    private final NotificationService notificationService = new NotificationService();
 
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp)
@@ -37,6 +39,14 @@ public class OrderTrackingServlet extends BaseServlet {
             if (order.getPickupCode() != null) {
                 req.setAttribute("qrDataUri", QrCodeUtil.toDataUri(order.getPickupCode(), 220));
             }
+
+            /* Đánh dấu đã đọc TRƯỚC khi đọc danh sách và trước khi forward, vì huy hiệu trên
+               thanh điều hướng được đếm ngay trong forward. Làm ngược lại thì trang vừa hiện
+               đủ tin của đơn này lại vừa mang một huy hiệu nói rằng còn tin chưa đọc, và nó
+               chỉ biến mất ở lượt mở trang sau. */
+            notificationService.markReadByOrder(user.getUserId(), orderId);
+            req.setAttribute("notifications", notificationService.findByOrder(orderId));
+
             forward(req, resp, "customer/order-tracking.jsp");
         } catch (AppException e) {
             req.setAttribute("errorMessage", e.getMessage());

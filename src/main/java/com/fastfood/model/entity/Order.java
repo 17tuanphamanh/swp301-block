@@ -30,6 +30,8 @@ public class Order {
     private Integer customerId;
     private Integer createdByUserId;
     private String orderSource;
+    /** Ca làm việc đã thu tiền đơn này. Chỉ đơn tại quầy mới có; để trống khi bán lúc chưa mở ca. */
+    private Integer shiftId;
     private BigDecimal totalAmount = BigDecimal.ZERO;
     private String orderStatus;
     private String idempotencyKey;
@@ -64,6 +66,9 @@ public class Order {
 
     public Integer getCreatedByUserId() { return createdByUserId; }
     public void setCreatedByUserId(Integer createdByUserId) { this.createdByUserId = createdByUserId; }
+
+    public Integer getShiftId() { return shiftId; }
+    public void setShiftId(Integer shiftId) { this.shiftId = shiftId; }
 
     public String getOrderSource() { return orderSource; }
     public void setOrderSource(String orderSource) { this.orderSource = orderSource; }
@@ -169,7 +174,7 @@ public class Order {
      * <p>
      * Đơn <b>đã xác nhận</b> thì mốc chặn là bếp đã bắt đầu làm hay chưa, không phải đơn đã
      * xuống bếp hay chưa — đơn xuống bếp trước giờ hẹn 20 phút và suốt khoảng đó có thể chưa
-     * ai nhận việc. Điều kiện này phải khớp với {@code OrderService.cancelByCustomer},
+     * ai nhận việc. Điều kiện này phải khớp với {@code CustomerOrderService.cancelByCustomer},
      * nơi kiểm tra thật.
      * <p>
      * Yêu cầu danh sách món đã được nạp; đơn nạp thiếu món sẽ hiện nút huỷ nhưng tầng dịch vụ
@@ -224,7 +229,7 @@ public class Order {
      * Đơn đã thu được tiền hay chưa.
      * <p>
      * Chỉ dùng để hiển thị và cảnh báo sớm. Trước khi thật sự giao món,
-     * {@code OrderService.handoff} hỏi lại cơ sở dữ liệu chứ không tin vào đối tượng này —
+     * {@code StaffOrderService.handoff} hỏi lại cơ sở dữ liệu chứ không tin vào đối tượng này —
      * lần thanh toán gần nhất nạp lúc mở trang có thể đã cũ khi nhân viên bấm nút.
      */
     public boolean isPaid() {

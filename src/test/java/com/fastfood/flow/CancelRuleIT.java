@@ -3,8 +3,9 @@ package com.fastfood.flow;
 import com.fastfood.common.exception.BusinessException;
 import com.fastfood.common.exception.NotFoundException;
 import com.fastfood.common.exception.ValidationException;
-import com.fastfood.service.KitchenService;
-import com.fastfood.service.OrderService;
+import com.fastfood.service.kitchen.KitchenService;
+import com.fastfood.service.customer.CustomerOrderService;
+import com.fastfood.service.staff.StaffOrderService;
 import com.fastfood.testsupport.IntegrationTestBase;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -25,7 +26,8 @@ import static org.junit.jupiter.api.Assertions.assertNotNull;
 @DisplayName("Khách huỷ đơn: chặn theo việc bếp đã bắt tay chưa")
 class CancelRuleIT extends IntegrationTestBase {
 
-    private final OrderService orderService = new OrderService();
+    private final CustomerOrderService customerOrders = new CustomerOrderService();
+    private final StaffOrderService staffOrders = new StaffOrderService();
     private final KitchenService kitchenService = new KitchenService();
 
     @Test
@@ -33,7 +35,7 @@ class CancelRuleIT extends IntegrationTestBase {
     void releasedButUntouchedOrderCanStillBeCancelled() {
         Fixture f = confirmedOrder(true);   // đã xuống bếp
 
-        orderService.cancelByCustomer(f.orderId, f.customerId);
+        customerOrders.cancelByCustomer(f.orderId, f.customerId);
 
         assertEquals("CANCELLED", statusOf(f.orderId),
                 "Chưa tốn nguyên liệu thì không có lý do gì từ chối khách");
@@ -44,7 +46,7 @@ class CancelRuleIT extends IntegrationTestBase {
     void scheduledOrderCanBeCancelled() {
         Fixture f = confirmedOrder(false);
 
-        orderService.cancelByCustomer(f.orderId, f.customerId);
+        customerOrders.cancelByCustomer(f.orderId, f.customerId);
 
         assertEquals("CANCELLED", statusOf(f.orderId));
     }
@@ -56,7 +58,7 @@ class CancelRuleIT extends IntegrationTestBase {
         kitchenService.claim(f.orderItemId, userId(KITCHEN_1));
 
         BusinessException e = assertThrows(BusinessException.class,
-                () -> orderService.cancelByCustomer(f.orderId, f.customerId));
+                () -> customerOrders.cancelByCustomer(f.orderId, f.customerId));
 
         assertEquals("PREPARING", statusOf(f.orderId), "Không được kéo trạng thái bếp lùi lại");
         org.junit.jupiter.api.Assertions.assertTrue(e.getMessage().contains("Bếp đã bắt đầu"),
@@ -69,7 +71,7 @@ class CancelRuleIT extends IntegrationTestBase {
         Fixture f = confirmedOrder(false);
         payFor(f.orderId);
 
-        orderService.cancelByCustomer(f.orderId, f.customerId);
+        customerOrders.cancelByCustomer(f.orderId, f.customerId);
 
         assertEquals(1, count("SELECT COUNT(*) FROM dbo.Payment " +
                         "WHERE order_id = ? AND payment_status = 'REFUNDED'", f.orderId),
@@ -83,11 +85,11 @@ class CancelRuleIT extends IntegrationTestBase {
     void refundIsIdempotent() {
         Fixture f = confirmedOrder(false);
         payFor(f.orderId);
-        orderService.cancelByCustomer(f.orderId, f.customerId);
+        customerOrders.cancelByCustomer(f.orderId, f.customerId);
 
         // Đơn đã hoàn rồi; đường hoàn tiền sót phải nhận ra và từ chối
         BusinessException e = assertThrows(BusinessException.class,
-                () -> new com.fastfood.service.PaymentService()
+                () -> new com.fastfood.service.shared.PaymentService()
                         .refund(f.orderId, userId(CASHIER_1), "thu ngan bam nham lan hai"));
 
         assertEquals(1, count("SELECT COUNT(*) FROM dbo.Payment " +
@@ -100,10 +102,10 @@ class CancelRuleIT extends IntegrationTestBase {
     void refundRequiresReason() {
         Fixture f = confirmedOrder(false);
         payFor(f.orderId);
-        orderService.cancelByCustomer(f.orderId, f.customerId);
+        customerOrders.cancelByCustomer(f.orderId, f.customerId);
 
         assertThrows(ValidationException.class,
-                () -> new com.fastfood.service.PaymentService().refund(f.orderId, userId(CASHIER_1), "  "));
+                () -> new com.fastfood.service.shared.PaymentService().refund(f.orderId, userId(CASHIER_1), "  "));
     }
 
     @Test
@@ -112,7 +114,7 @@ class CancelRuleIT extends IntegrationTestBase {
         Fixture f = confirmedOrder(false);
 
         assertThrows(NotFoundException.class,
-                () -> orderService.cancelByCustomer(f.orderId, userId(CUSTOMER_2)),
+                () -> customerOrders.cancelByCustomer(f.orderId, userId(CUSTOMER_2)),
                 "Trả 'không tìm thấy' để người ngoài không dò được mã đơn nào có thật");
     }
 
@@ -123,9 +125,9 @@ class CancelRuleIT extends IntegrationTestBase {
         kitchenService.claim(f.orderItemId, userId(KITCHEN_1));
 
         assertThrows(ValidationException.class,
-                () -> orderService.cancelByStaff(f.orderId, userId(CASHIER_1), ""));
+                () -> staffOrders.cancelByStaff(f.orderId, userId(CASHIER_1), ""));
 
-        orderService.cancelByStaff(f.orderId, userId(CASHIER_1), "khach goi dien xin huy");
+        staffOrders.cancelByStaff(f.orderId, userId(CASHIER_1), "khach goi dien xin huy");
 
         assertEquals("CANCELLED", statusOf(f.orderId));
         assertEquals(1, count("SELECT COUNT(*) FROM dbo.AuditLog WHERE entity_type = 'ORDER' " +

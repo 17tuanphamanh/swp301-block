@@ -89,6 +89,34 @@
             <version>5.10.2</version>
             <scope>test</scope>
         </dependency>
+
+        <!--
+            Bộ dịch JSP của chính Tomcat, chỉ dùng khi chạy test.
+
+            Trước đây toàn bộ 26 trang JSP không có gì kiểm: một thẻ quên đóng hay một hàm thẻ
+            gõ sai chỉ lộ ra khi mở trang trên trình duyệt. JspCompileTest gọi thẳng bộ dịch này
+            để bắt những lỗi đó ngay trong `mvn test`.
+
+            Phiên bản khớp Tomcat 9 vì dự án dùng javax.servlet; Tomcat 10 trở lên đã đổi sang
+            jakarta.servlet và sẽ không dịch nổi các trang này.
+        -->
+        <dependency>
+            <groupId>org.apache.tomcat</groupId>
+            <artifactId>tomcat-jasper</artifactId>
+            <version>9.0.89</version>
+            <scope>test</scope>
+        </dependency>
+        <!--
+            JspC kế thừa Task của Ant nên phải có Ant trên đường dẫn lớp mới biên dịch được bài
+            test, dù bài test không dùng Ant để làm gì. Đây là dây rợ của Jasper, không phải
+            lựa chọn của dự án.
+        -->
+        <dependency>
+            <groupId>org.apache.ant</groupId>
+            <artifactId>ant</artifactId>
+            <version>1.10.14</version>
+            <scope>test</scope>
+        </dependency>
     </dependencies>
 
     <build>

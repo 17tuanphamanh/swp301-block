@@ -100,6 +100,21 @@
         <function-signature>java.lang.String issueStatusTag(java.lang.String)</function-signature>
     </function>
     <function>
+        <name>notificationEvent</name>
+        <function-class>com.fastfood.common.util.ViewFunctions</function-class>
+        <function-signature>java.lang.String notificationEvent(java.lang.String)</function-signature>
+    </function>
+    <function>
+        <name>notificationIcon</name>
+        <function-class>com.fastfood.common.util.ViewFunctions</function-class>
+        <function-signature>java.lang.String notificationIcon(java.lang.String)</function-signature>
+    </function>
+    <function>
+        <name>notificationEventClass</name>
+        <function-class>com.fastfood.common.util.ViewFunctions</function-class>
+        <function-signature>java.lang.String notificationEventClass(java.lang.String)</function-signature>
+    </function>
+    <function>
         <name>auditAction</name>
         <function-class>com.fastfood.common.util.ViewFunctions</function-class>
         <function-signature>java.lang.String auditAction(java.lang.String)</function-signature>

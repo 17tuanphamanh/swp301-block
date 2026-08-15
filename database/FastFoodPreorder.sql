@@ -25,13 +25,20 @@
    NỘI DUNG
      1. Tạo database
      2. Xoá đối tượng cũ
-     3. 13 bảng          (nhóm: danh mục · giỏ hàng · đơn hàng · thanh toán · vận hành)
-     4. 17 index
+     3. 25 bảng          (nhóm: danh mục · giỏ hàng · đơn hàng · thanh toán · vận hành ·
+                          bếp · đơn treo · quản trị · của riêng khách)
+     4. 29 index
      5. 2 view           (suy ra trạng thái release & KPI đúng hẹn)
      6. 6 trigger        (BR-04 + chặn hard-delete BR-20)
-     7. Dữ liệu mẫu     (7 user · 13 món · 2 giỏ hàng · 11 đơn phủ đủ 7 trạng thái ·
-                          tin báo và nhật ký thao tác suy ra từ chính các mốc thời gian)
+     7. Dữ liệu mẫu     (7 user · 13 món · 2 giỏ hàng · 11 đơn phủ đủ 7 trạng thái · 2 ca làm
+                          việc · 2 phiếu treo · chỉ tiêu doanh thu · món quen, mẫu đặt nhanh và
+                          đánh giá của khách · tin báo và nhật ký thao tác suy ra từ chính các
+                          mốc thời gian)
      8. Kiểm tra sau khi chạy — 10 bảng đối chiếu, in ra ngay sau khi chạy xong
+
+   MỖI BẢNG MỚI PHẢI CÓ DÒNG DROP Ở MỤC 2. Quên dòng đó thì file chạy được đúng một lần: từ
+   lần thứ hai, DROP bảng cha vấp phải khoá ngoại và cả phần dựng lược đồ dừng giữa chừng.
+   Số bảng ở mục 3 và số dòng DROP ở mục 2 phải luôn bằng nhau — hiện là 25.
 
    BA TÊN BẢNG KHÁC TÀI LIỆU — vì trùng từ khoá SQL Server:
      User -> Users        Order -> Orders        Transaction -> PaymentTransaction
@@ -75,12 +82,32 @@ DROP VIEW  IF EXISTS dbo.vw_OnTimeReady;
 DROP VIEW  IF EXISTS dbo.vw_OrderReleaseState;
 
 DROP TABLE IF EXISTS dbo.AuditLog;
+DROP TABLE IF EXISTS dbo.PasswordResetToken;
+/* Bảy bảng dưới đây đều trỏ tới Users và/hoặc Product, nên phải xoá trước hai bảng đó.
+   Bảng con xoá trước bảng cha ngay cả khi đã có ON DELETE CASCADE: cascade chỉ áp dụng cho
+   việc xoá DÒNG, không áp dụng cho DROP TABLE. */
+DROP TABLE IF EXISTS dbo.Review;
+DROP TABLE IF EXISTS dbo.OrderTemplateItem;
+DROP TABLE IF EXISTS dbo.OrderTemplate;
+DROP TABLE IF EXISTS dbo.Favourite;
+DROP TABLE IF EXISTS dbo.RevenueTarget;
+DROP TABLE IF EXISTS dbo.PosHoldItem;
+DROP TABLE IF EXISTS dbo.PosHold;
+/* Ba bảng của bếp. PrepTask trỏ tới Product và Users, OrderItemNote trỏ tới OrderItem, nên cả
+   ba phải xoá trước những bảng chúng tham chiếu. Thêm bảng mới mà quên dòng DROP ở đây thì tệp
+   này không chạy lại được lần thứ hai — xem TestDatabase.ensureReady, nơi lỗi đó bị bắt. */
+DROP TABLE IF EXISTS dbo.KitchenNote;
+DROP TABLE IF EXISTS dbo.OrderItemNote;
+DROP TABLE IF EXISTS dbo.PrepTask;
 DROP TABLE IF EXISTS dbo.KitchenIssue;
 DROP TABLE IF EXISTS dbo.Notification;
 DROP TABLE IF EXISTS dbo.PaymentTransaction;
 DROP TABLE IF EXISTS dbo.Payment;
+DROP TABLE IF EXISTS dbo.OrderNote;
 DROP TABLE IF EXISTS dbo.OrderItem;
 DROP TABLE IF EXISTS dbo.Orders;
+-- Orders trỏ tới Shift nên phải xoá Orders trước, và Shift trước Users.
+DROP TABLE IF EXISTS dbo.Shift;
 DROP TABLE IF EXISTS dbo.CartItem;
 DROP TABLE IF EXISTS dbo.Cart;
 DROP TABLE IF EXISTS dbo.Product;
@@ -176,7 +203,8 @@ GO
 
 /* Chỉ khách Online đã đăng nhập mới có giỏ trong DB.
    POS dựng giỏ tạm trong session của Cashier, không ghi xuống đây — nếu ghi thì mỗi khách
-   vãng lai lại sinh một dòng rác. */
+   vãng lai lại sinh một dòng rác. Muốn giữ phiếu lại để phục vụ người khác trước thì thu ngân
+   TREO đơn, và chỉ lúc đó mới có bản ghi — xem dbo.PosHold. */
 CREATE TABLE dbo.Cart (
     cart_id    INT IDENTITY(1,1) NOT NULL,
     user_id    INT               NOT NULL,
@@ -205,6 +233,51 @@ GO
 
 /* ------------------------------------ NHÓM 3 — ĐƠN HÀNG ----------------------------------- */
 
+/* Ca làm việc của thu ngân — nơi đối soát tiền mặt.
+
+   Vì sao cần bảng này. Khoản thu bằng thẻ hay mã QR có mã giao dịch trên biên lai để đối chiếu
+   với sao kê, còn khoản thu tiền mặt thì trước đây "chỉ có chính bản ghi thanh toán" làm dấu
+   vết — tức là không đối chiếu được với gì cả. Ca làm việc cho nó một con số kiểm chứng được:
+   đầu ca đếm tiền, cuối ca đếm lại, hệ thống nói ra chênh lệch.
+
+   expected_cash tính theo HAI mốc chứ không một, cùng bài học với báo cáo doanh thu:
+     thu  — khoản tiền mặt của đơn thuộc chính ca này, tính theo paid_at
+     hoàn — khoản tiền mặt hoàn của đơn thuộc chính ca này, tính theo refunded_at
+
+   Cả hai vế đều giới hạn trong đơn CỦA CA, không theo khoảng thời gian. Trừ mọi khoản hoàn
+   xảy ra trong giờ của ca sẽ kéo cả khoản hoàn của thu ngân khác — hai người bán cùng lúc ở
+   hai két thì két này gánh khoản chi của két kia. Đánh đổi đã biết: khoản hoàn cho đơn của ca
+   trước, chi ra từ két của ca này, không quy về đâu được vì Payment không lưu ai hoàn tiền;
+   dấu vết còn lại trong AuditLog (PAYMENT_REFUNDED có người thực hiện). Xem ShiftDAO.expectedCash.
+
+   variance lưu lại chứ không tính lại mỗi lần đọc: nó là con số đã chốt tại thời điểm đóng ca,
+   và sửa lại quá khứ thì mất ý nghĩa đối soát. */
+CREATE TABLE dbo.Shift (
+    shift_id      INT IDENTITY(1,1) NOT NULL,
+    cashier_id    INT               NOT NULL,
+    opened_at     DATETIME2(0)      NOT NULL,
+    opening_cash  DECIMAL(12,2)     NOT NULL CONSTRAINT DF_Shift_openCash DEFAULT (0),
+    closed_at     DATETIME2(0)      NULL,
+    counted_cash  DECIMAL(12,2)     NULL,      -- thu ngân đếm được cuối ca
+    expected_cash DECIMAL(12,2)     NULL,      -- hệ thống tính ra
+    variance      DECIMAL(12,2)     NULL,      -- counted − expected; âm là thiếu
+    note          NVARCHAR(500)     NULL,
+    status        VARCHAR(20)       NOT NULL CONSTRAINT DF_Shift_status DEFAULT ('OPEN'),
+    CONSTRAINT PK_Shift        PRIMARY KEY (shift_id),
+    CONSTRAINT FK_Shift_Users  FOREIGN KEY (cashier_id) REFERENCES dbo.Users(user_id),
+    -- CANCELLED: ca mở nhầm, thu hồi khi chưa có đơn nào. Giữ dòng lại thay vì xoá để mã ca
+    -- trong nhật ký thao tác vẫn dẫn về đúng bản ghi.
+    CONSTRAINT CK_Shift_status CHECK (status IN ('OPEN','CLOSED','CANCELLED')),
+    CONSTRAINT CK_Shift_cash   CHECK (opening_cash >= 0 AND (counted_cash IS NULL OR counted_cash >= 0)),
+    /* Ca đã đóng thì bắt buộc có đủ bốn số liệu đối soát. Thiếu một trong số đó nghĩa là ca
+       đóng dở dang, và bảng đối soát sẽ có một dòng trống mà không ai biết vì sao. */
+    CONSTRAINT CK_Shift_closed CHECK (
+        status <> 'CLOSED'
+        OR (closed_at IS NOT NULL AND counted_cash IS NOT NULL
+            AND expected_cash IS NOT NULL AND variance IS NOT NULL))
+);
+GO
+
 /* Ba mốc thời gian dưới đây là phần cốt lõi phân biệt Online Pre-order với POS:
 
      pickup_time         CAM KẾT với khách — giờ khách sẽ đến lấy
@@ -221,6 +294,12 @@ CREATE TABLE dbo.Orders (
     customer_id        INT               NULL,          -- NULL với khách vãng lai mua tại quầy
     created_by_user_id INT               NULL,          -- Cashier lập đơn POS
     order_source       VARCHAR(20)       NOT NULL,      -- ONLINE_PREORDER | POS
+    /* Ca làm việc đã thu tiền đơn này. Để trống được, và đó là lựa chọn có ý thức: chặn bán
+       khi chưa mở ca sẽ khiến thu ngân kẹt giữa giờ cao điểm vì một thủ tục hành chính. Đơn
+       không thuộc ca nào vẫn bán bình thường, chỉ không vào được bảng đối soát cuối ca — và
+       màn hình có cảnh báo để chuyện đó không xảy ra trong im lặng.
+       Đơn đặt trước luôn để trống: tiền vào qua cổng thanh toán, không qua két nào cả. */
+    shift_id           INT               NULL,
     total_amount       DECIMAL(12,2)     NOT NULL CONSTRAINT DF_Orders_total DEFAULT (0),
     order_status       VARCHAR(20)       NOT NULL,
     idempotency_key    VARCHAR(64)       NULL,          -- chặn tạo trùng đơn khi khách bấm Đặt hàng 2 lần
@@ -244,6 +323,9 @@ CREATE TABLE dbo.Orders (
     CONSTRAINT FK_Orders_Customer  FOREIGN KEY (customer_id)        REFERENCES dbo.Users(user_id),
     CONSTRAINT FK_Orders_CreatedBy FOREIGN KEY (created_by_user_id) REFERENCES dbo.Users(user_id),
     CONSTRAINT FK_Orders_Handoff   FOREIGN KEY (handoff_by_user_id) REFERENCES dbo.Users(user_id),
+    CONSTRAINT FK_Orders_Shift     FOREIGN KEY (shift_id)           REFERENCES dbo.Shift(shift_id),
+    -- Đơn đặt trước không đi qua két tiền mặt nào nên không được gắn vào ca.
+    CONSTRAINT CK_Orders_shiftPosOnly CHECK (shift_id IS NULL OR order_source = 'POS'),
 
     -- chặn mọi kênh ngoài phạm vi MVP lọt vào hệ thống
     CONSTRAINT CK_Orders_source CHECK (order_source IN ('ONLINE_PREORDER','POS')),
@@ -378,6 +460,12 @@ CREATE TABLE dbo.Notification (
     content         NVARCHAR(MAX)     NULL,       -- tin báo sẵn sàng phải kèm giờ hẹn và mã nhận hàng
     status          VARCHAR(20)       NOT NULL CONSTRAINT DF_Notification_status  DEFAULT ('PENDING'),
     sent_at         DATETIME2(0)      NULL,
+    /* Lúc khách mở tin ra đọc. NULL nghĩa là chưa đọc, và đó là toàn bộ cơ sở cho con số trên
+       mục "Thông báo" ở thanh điều hướng. Không có cột này thì kênh gửi tin chỉ ghi vào một
+       bảng không ai mở: bản chạy thử gửi qua kênh giả lập, nên màn hình trong ứng dụng chính
+       là nơi duy nhất khách đọc được tin — mà một danh sách không đánh dấu đã đọc thì không
+       nói được tin nào là mới. */
+    read_at         DATETIME2(0)      NULL,
     CONSTRAINT PK_Notification         PRIMARY KEY (notification_id),
     CONSTRAINT FK_Notification_Users   FOREIGN KEY (user_id)  REFERENCES dbo.Users(user_id),
     CONSTRAINT FK_Notification_Orders  FOREIGN KEY (order_id) REFERENCES dbo.Orders(order_id),
@@ -408,9 +496,265 @@ CREATE TABLE dbo.KitchenIssue (
     -- CANCELLED: sự cố báo nhầm, do chính người báo thu hồi khi còn đang mở. Giữ lại dòng
     -- thay vì xoá hẳn để nhật ký thao tác vẫn dẫn được về đúng bản ghi mà nó nhắc tới.
     CONSTRAINT CK_Issue_status    CHECK (status     IN ('OPEN','RESOLVED','CANCELLED')),
-    CONSTRAINT CK_Issue_type      CHECK (issue_type IN ('OUT_OF_STOCK','QUALITY','REMAKE','OTHER'))
+    /* COUNTER_REJECT: thu ngân từ chối nhận món bếp đưa ra (sai món, nguội, thiếu phần).
+       Dùng chung bảng với sự cố bếp chứ không tạo bảng riêng: cùng là một món có vấn đề, cùng
+       vòng đời mở → xử lý xong, và cùng phải hiện lên cả hai màn hình. Khác nhau ở người tạo,
+       và cột created_by đã ghi lại điều đó. */
+    CONSTRAINT CK_Issue_type      CHECK (issue_type IN ('OUT_OF_STOCK','QUALITY','REMAKE','OTHER','COUNTER_REJECT'))
 );
 GO
+
+/* Kế hoạch chuẩn bị sẵn trong ca.
+
+   Bếp đồ ăn nhanh không đợi có đơn mới bắt tay vào làm: gà được nướng sẵn theo dự đoán, rau
+   cắt sẵn từ đầu ca. Đây là bảng DUY NHẤT mô tả công việc của bếp mà không bắt nguồn từ một
+   đơn hàng cụ thể — vì vậy nó tham chiếu thẳng Product chứ không qua OrderItem như KitchenIssue.
+
+   done_qty tách khỏi planned_qty chứ không ghi đè lên: cuối ca cần so kế hoạch với thực tế để
+   lần sau đặt số cho sát. Ghi đè thì con số dự đoán biến mất và không còn gì để đối chiếu. */
+CREATE TABLE dbo.PrepTask (
+    prep_task_id INT IDENTITY(1,1) NOT NULL,
+    product_id   INT               NOT NULL,
+    prep_date    DATE              NOT NULL,
+    planned_qty  INT               NOT NULL,
+    done_qty     INT               NOT NULL CONSTRAINT DF_Prep_doneQty   DEFAULT (0),
+    note         NVARCHAR(300)     NULL,
+    created_by   INT               NOT NULL,
+    created_at   DATETIME2(0)      NOT NULL CONSTRAINT DF_Prep_createdAt DEFAULT (SYSDATETIME()),
+    updated_at   DATETIME2(0)      NULL,
+    status       VARCHAR(20)       NOT NULL CONSTRAINT DF_Prep_status    DEFAULT ('PLANNED'),
+    CONSTRAINT PK_PrepTask     PRIMARY KEY (prep_task_id),
+    CONSTRAINT FK_Prep_Product FOREIGN KEY (product_id) REFERENCES dbo.Product(product_id),
+    CONSTRAINT FK_Prep_Users   FOREIGN KEY (created_by) REFERENCES dbo.Users(user_id),
+    -- CANCELLED: kế hoạch lập nhầm, người lập tự thu hồi. Giữ dòng lại thay vì xoá hẳn để
+    -- nhật ký thao tác vẫn dẫn được về đúng bản ghi mà nó nhắc tới — cùng cách làm với KitchenIssue.
+    CONSTRAINT CK_Prep_status  CHECK (status IN ('PLANNED','DONE','CANCELLED')),
+    -- Chặn ngay tại đây chứ không chỉ ở tầng Service: số lượng vô lý lọt xuống sẽ làm báo cáo
+    -- so sánh kế hoạch với thực tế trở thành vô nghĩa mà không ai nhận ra.
+    CONSTRAINT CK_Prep_planned CHECK (planned_qty BETWEEN 1 AND 999),
+    CONSTRAINT CK_Prep_done    CHECK (done_qty BETWEEN 0 AND 999)
+);
+GO
+
+/* Ghi chú điều phối gắn với một đơn hàng.
+
+   Của thu ngân, khác ghi chú chế biến của bếp ở chỗ nó nói về CẢ ĐƠN chứ không về một món:
+   "khách gọi báo đến muộn 20 phút", "đơn này ưu tiên, khách đang đứng đợi". Hiện tại những
+   thông tin đó chỉ tồn tại trong đầu người trực quầy — đổi ca là mất.
+
+   Cùng lý do với ghi chú của bếp: không dính tiền, không đổi trạng thái đơn, không có dòng nhật
+   ký nào trỏ về, nên xoá hẳn được và không cần ghi vào nhật ký thao tác. */
+CREATE TABLE dbo.OrderNote (
+    order_note_id INT IDENTITY(1,1) NOT NULL,
+    order_id      INT               NOT NULL,
+    author_id     INT               NOT NULL,
+    content       NVARCHAR(500)     NOT NULL,
+    created_at    DATETIME2(0)      NOT NULL CONSTRAINT DF_OrderNote_createdAt DEFAULT (SYSDATETIME()),
+    updated_at    DATETIME2(0)      NULL,
+    CONSTRAINT PK_OrderNote        PRIMARY KEY (order_note_id),
+    CONSTRAINT FK_OrderNote_Order  FOREIGN KEY (order_id)  REFERENCES dbo.Orders(order_id),
+    CONSTRAINT FK_OrderNote_Users  FOREIGN KEY (author_id) REFERENCES dbo.Users(user_id),
+    CONSTRAINT CK_OrderNote_content CHECK (LEN(LTRIM(RTRIM(content))) > 0)
+);
+GO
+
+/* Ghi chú chế biến gắn với một món cụ thể.
+
+   Vì sao KHÔNG dùng lại KitchenIssue với issue_type = 'OTHER': số sự cố đang mở điều khiển bốn
+   chỗ cảnh báo đỏ trên màn hình thu ngân (dải cảnh báo ở màn điều phối, thẻ đỏ từng món ở màn
+   chi tiết đơn, thẻ trên màn bếp, và chữ ký polling của KDS). Một dòng ghi chú thường ngày như
+   "khách dặn ít cay" mà đi vào đó sẽ hiện thành sự cố chưa xử lý ở cả bốn chỗ, và thu ngân mất
+   niềm tin vào chính con số cảnh báo ấy.
+
+   Sự cố có vòng đời (mở → xử lý xong / thu hồi) vì nó là chuyện phải giải quyết. Ghi chú thì
+   không: nó chỉ là thông tin để lại cho người làm ca sau, nên xoá hẳn được và không cần ghi
+   vào nhật ký thao tác — nhật ký dành cho việc làm đổi tiền hoặc đổi trạng thái đơn. */
+CREATE TABLE dbo.OrderItemNote (
+    note_id       INT IDENTITY(1,1) NOT NULL,
+    order_item_id INT               NOT NULL,
+    author_id     INT               NOT NULL,
+    content       NVARCHAR(500)     NOT NULL,
+    created_at    DATETIME2(0)      NOT NULL CONSTRAINT DF_ItemNote_createdAt DEFAULT (SYSDATETIME()),
+    updated_at    DATETIME2(0)      NULL,
+    CONSTRAINT PK_OrderItemNote    PRIMARY KEY (note_id),
+    CONSTRAINT FK_ItemNote_Item    FOREIGN KEY (order_item_id) REFERENCES dbo.OrderItem(order_item_id),
+    CONSTRAINT FK_ItemNote_Users   FOREIGN KEY (author_id)     REFERENCES dbo.Users(user_id),
+    -- Ghi chú rỗng không mang thông tin gì mà vẫn chiếm một dòng trên màn hình.
+    CONSTRAINT CK_ItemNote_content CHECK (LEN(LTRIM(RTRIM(content))) > 0)
+);
+GO
+
+/* Sổ bàn giao ca bếp — thứ ca trước cần nói lại với ca sau.
+
+   Không gắn với đơn hay món nào: nội dung là chuyện của cả ca ("lò số 2 nóng chậm, cần thêm 5
+   phút", "hết khay giấy, đã báo quản lý"). Cùng lý do với ghi chú chế biến, bảng này xoá hẳn
+   được và không đi vào nhật ký thao tác. */
+CREATE TABLE dbo.KitchenNote (
+    kitchen_note_id INT IDENTITY(1,1) NOT NULL,
+    shift_date      DATE              NOT NULL,
+    author_id       INT               NOT NULL,
+    content         NVARCHAR(1000)    NOT NULL,
+    created_at      DATETIME2(0)      NOT NULL CONSTRAINT DF_KitNote_createdAt DEFAULT (SYSDATETIME()),
+    updated_at      DATETIME2(0)      NULL,
+    CONSTRAINT PK_KitchenNote      PRIMARY KEY (kitchen_note_id),
+    CONSTRAINT FK_KitNote_Users    FOREIGN KEY (author_id) REFERENCES dbo.Users(user_id),
+    CONSTRAINT CK_KitNote_content  CHECK (LEN(LTRIM(RTRIM(content))) > 0)
+);
+GO
+
+/* ------------------------------------ NHÓM 6 — ĐƠN TREO TẠI QUẦY -------------------------- */
+
+/* Đơn treo: khách đang gọi món thì nói "chờ tôi gọi thêm", thu ngân treo phiếu lại để phục vụ
+   người tiếp theo rồi lấy ra sau.
+
+   Vì sao KHÔNG ghi thẳng giỏ POS xuống đây. Lý do ở bảng Cart vẫn nguyên giá trị: giỏ tạm nằm
+   trong session của thu ngân, vì mỗi lần bấm nhầm mà ghi xuống là một dòng rác. Treo đơn là
+   chuyện khác hẳn — đó là một thao tác CỐ Ý, thu ngân phải đặt tên cho phiếu. Bấm nhầm không
+   sinh ra dòng nào; chỉ khi có người chủ động treo mới có bản ghi.
+
+   Xoá hẳn được, cùng lý do với CartItem: đây là phiếu nháp chưa thành đơn hàng, chưa có đồng
+   tiền nào đi qua và không có bản ghi nào trỏ tới. */
+CREATE TABLE dbo.PosHold (
+    hold_id    INT IDENTITY(1,1) NOT NULL,
+    cashier_id INT               NOT NULL,
+    label      NVARCHAR(100)     NOT NULL,   -- "Bàn 3", "Anh áo xanh" — thu ngân tự đặt để nhận ra
+    note       NVARCHAR(500)     NULL,
+    created_at DATETIME2(0)      NOT NULL CONSTRAINT DF_PosHold_createdAt DEFAULT (SYSDATETIME()),
+    updated_at DATETIME2(0)      NULL,
+    CONSTRAINT PK_PosHold       PRIMARY KEY (hold_id),
+    CONSTRAINT FK_PosHold_Users FOREIGN KEY (cashier_id) REFERENCES dbo.Users(user_id),
+    CONSTRAINT CK_PosHold_label CHECK (LEN(LTRIM(RTRIM(label))) > 0),
+    /* Hai phiếu cùng tên trong tay một thu ngân thì chính họ không biết lấy cái nào ra — mà
+       đó là lúc khách đang đứng đợi. Chặn ở đây chứ không đọc trước rồi kiểm: hai tab cùng mở
+       màn bán hàng sẽ cùng đọc thấy "chưa có phiếu nào tên này". */
+    CONSTRAINT UQ_PosHold_cashier_label UNIQUE (cashier_id, label)
+);
+GO
+
+/* Bảng thứ hai được phép CASCADE DELETE, cùng lý do với CartItem. */
+CREATE TABLE dbo.PosHoldItem (
+    hold_item_id INT IDENTITY(1,1) NOT NULL,
+    hold_id      INT               NOT NULL,
+    product_id   INT               NOT NULL,
+    quantity     INT               NOT NULL,
+    CONSTRAINT PK_PosHoldItem         PRIMARY KEY (hold_item_id),
+    CONSTRAINT FK_PosHoldItem_Hold    FOREIGN KEY (hold_id)    REFERENCES dbo.PosHold(hold_id) ON DELETE CASCADE,
+    CONSTRAINT FK_PosHoldItem_Product FOREIGN KEY (product_id) REFERENCES dbo.Product(product_id),
+    CONSTRAINT CK_PosHoldItem_qty     CHECK (quantity > 0),
+    -- treo cùng một món hai lần thì cộng dồn, không tạo dòng thứ hai — như UQ_CartItem
+    CONSTRAINT UQ_PosHoldItem         UNIQUE (hold_id, product_id)
+);
+GO
+
+/* ------------------------------------ NHÓM 7 — QUẢN TRỊ ----------------------------------- */
+
+/* Chỉ tiêu doanh thu theo kỳ, để bảng điều khiển có con số để so chứ không chỉ báo cáo suông.
+
+   Bảng này CHỈ ĐƯỢC ĐỌC ở phía dưới: bảng điều khiển lấy chỉ tiêu ra rồi đặt cạnh doanh thu
+   thuần đã tính sẵn. Không một câu lệnh tính tiền nào của hệ thống đi qua đây, nên đặt sai chỉ
+   tiêu thì chỉ sai một dòng so sánh trên màn hình, không sai sổ sách.
+
+   Doanh thu đem ra so PHẢI là netRevenue của DashboardKpi, không viết lại công thức lần hai:
+   hai cách tính đặt cạnh nhau trên cùng màn hình sớm muộn cũng lệch nhau — đúng bài học hai mốc
+   thời gian của báo cáo doanh thu.
+
+   Xoá hẳn được, khác với Shift. Chỉ tiêu là một dự định chưa thành việc gì: không có tiền đi
+   qua, không bản ghi nào trỏ tới. Dấu vết vẫn còn vì dòng nhật ký TARGET_DELETED mang theo con
+   số cũ trong old_value — tức là bản thân dòng nhật ký đã đủ, không cần giữ lại bản ghi rỗng. */
+CREATE TABLE dbo.RevenueTarget (
+    target_id     INT IDENTITY(1,1) NOT NULL,
+    period_type   VARCHAR(10)       NOT NULL,   -- DAY | MONTH
+    period_start  DATE              NOT NULL,   -- MONTH thì luôn là ngày mùng 1
+    target_amount DECIMAL(12,2)     NOT NULL,
+    note          NVARCHAR(500)     NULL,
+    created_by    INT               NOT NULL,
+    created_at    DATETIME2(0)      NOT NULL CONSTRAINT DF_Target_createdAt DEFAULT (SYSDATETIME()),
+    updated_at    DATETIME2(0)      NULL,
+    CONSTRAINT PK_RevenueTarget    PRIMARY KEY (target_id),
+    CONSTRAINT FK_Target_Users     FOREIGN KEY (created_by) REFERENCES dbo.Users(user_id),
+    CONSTRAINT CK_Target_period    CHECK (period_type IN ('DAY','MONTH')),
+    CONSTRAINT CK_Target_amount    CHECK (target_amount > 0),
+    /* Kỳ tháng phải bắt đầu từ mùng 1. Không chặn ở đây thì hai chỉ tiêu "tháng 8" đặt lệch
+       ngày sẽ cùng tồn tại, và ràng buộc duy nhất bên dưới không bắt được. */
+    CONSTRAINT CK_Target_monthStart CHECK (period_type <> 'MONTH' OR DAY(period_start) = 1)
+);
+GO
+
+/* ------------------------------------ NHÓM 8 — CỦA RIÊNG KHÁCH ---------------------------- */
+
+/* Món quen của khách. Ghi chú riêng là phần làm nên giá trị của bảng này: đánh dấu yêu thích
+   thì chỉ có thêm và bỏ, còn "ít cay", "không hành", "nhiều đá" mới là thứ khách muốn lưu và
+   muốn sửa lại. */
+CREATE TABLE dbo.Favourite (
+    favourite_id INT IDENTITY(1,1) NOT NULL,
+    customer_id  INT               NOT NULL,
+    product_id   INT               NOT NULL,
+    note         NVARCHAR(255)     NULL,
+    created_at   DATETIME2(0)      NOT NULL CONSTRAINT DF_Fav_createdAt DEFAULT (SYSDATETIME()),
+    updated_at   DATETIME2(0)      NULL,
+    CONSTRAINT PK_Favourite         PRIMARY KEY (favourite_id),
+    CONSTRAINT FK_Fav_Users         FOREIGN KEY (customer_id) REFERENCES dbo.Users(user_id),
+    CONSTRAINT FK_Fav_Product       FOREIGN KEY (product_id)  REFERENCES dbo.Product(product_id),
+    CONSTRAINT UQ_Fav_customer_prod UNIQUE (customer_id, product_id)
+);
+GO
+
+/* Mẫu đặt nhanh — khách lưu lại một đơn đã đặt để lần sau nạp thẳng vào giỏ.
+
+   Mẫu chỉ lưu MÃ MÓN và SỐ LƯỢNG, cố ý không lưu giá. Cùng nguyên tắc với giỏ hàng: giá luôn
+   đọc mới tại thời điểm nạp, nên mẫu lưu từ tháng trước không bao giờ đưa giá cũ vào đơn mới. */
+CREATE TABLE dbo.OrderTemplate (
+    template_id INT IDENTITY(1,1) NOT NULL,
+    customer_id INT               NOT NULL,
+    name        NVARCHAR(100)     NOT NULL,
+    created_at  DATETIME2(0)      NOT NULL CONSTRAINT DF_Tpl_createdAt DEFAULT (SYSDATETIME()),
+    updated_at  DATETIME2(0)      NULL,
+    CONSTRAINT PK_OrderTemplate    PRIMARY KEY (template_id),
+    CONSTRAINT FK_Tpl_Users        FOREIGN KEY (customer_id) REFERENCES dbo.Users(user_id),
+    CONSTRAINT CK_Tpl_name         CHECK (LEN(LTRIM(RTRIM(name))) > 0),
+    -- trùng tên trong cùng một khách thì chính khách đó không phân biệt được hai mẫu
+    CONSTRAINT UQ_Tpl_customer_name UNIQUE (customer_id, name)
+);
+GO
+
+CREATE TABLE dbo.OrderTemplateItem (
+    template_item_id INT IDENTITY(1,1) NOT NULL,
+    template_id      INT               NOT NULL,
+    product_id       INT               NOT NULL,
+    quantity         INT               NOT NULL,
+    CONSTRAINT PK_OrderTemplateItem   PRIMARY KEY (template_item_id),
+    CONSTRAINT FK_TplItem_Template    FOREIGN KEY (template_id) REFERENCES dbo.OrderTemplate(template_id) ON DELETE CASCADE,
+    CONSTRAINT FK_TplItem_Product     FOREIGN KEY (product_id)  REFERENCES dbo.Product(product_id),
+    CONSTRAINT CK_TplItem_qty         CHECK (quantity > 0),
+    CONSTRAINT UQ_TplItem             UNIQUE (template_id, product_id)
+);
+GO
+
+/* Đánh giá món.
+
+   Điều kiện "đã mua và đã nhận" KHÔNG chặn được ở tầng dữ liệu vì nó cần phép ghép qua Orders
+   và OrderItem — ràng buộc CHECK trong SQL Server không nhìn sang bảng khác. Chốt chặn nằm ở
+   ReviewService, và có bài kiểm thử riêng cho nó. Ở đây chỉ chặn được hai chuyện: điểm nằm
+   trong khoảng 1–5, và mỗi khách một đánh giá cho một món.
+
+   Ràng buộc duy nhất thứ hai mới là chốt chặn thật sự đáng giá: không có nó, một khách bấm gửi
+   hai lần sẽ tự đẩy điểm trung bình của món lên. */
+CREATE TABLE dbo.Review (
+    review_id   INT IDENTITY(1,1) NOT NULL,
+    product_id  INT               NOT NULL,
+    customer_id INT               NOT NULL,
+    rating      TINYINT           NOT NULL,
+    comment     NVARCHAR(1000)    NULL,
+    created_at  DATETIME2(0)      NOT NULL CONSTRAINT DF_Review_createdAt DEFAULT (SYSDATETIME()),
+    updated_at  DATETIME2(0)      NULL,
+    CONSTRAINT PK_Review              PRIMARY KEY (review_id),
+    CONSTRAINT FK_Review_Product      FOREIGN KEY (product_id)  REFERENCES dbo.Product(product_id),
+    CONSTRAINT FK_Review_Users        FOREIGN KEY (customer_id) REFERENCES dbo.Users(user_id),
+    CONSTRAINT CK_Review_rating       CHECK (rating BETWEEN 1 AND 5),
+    CONSTRAINT UQ_Review_cust_product UNIQUE (customer_id, product_id)
+);
+GO
+
 
 /* Nhật ký thao tác, thiết kế dạng chung để ghi được mọi loại đối tượng mà không cần
    thêm bảng mỗi khi có nghiệp vụ mới. actor_id để trống nghĩa là do hệ thống tự thực hiện.
@@ -431,6 +775,35 @@ CREATE TABLE dbo.AuditLog (
 GO
 
 
+/* Mã đặt lại mật khẩu cho luồng "Quên mật khẩu".
+
+   Lưu BẢN BĂM của mã chứ không lưu mã. Mã nằm trong liên kết gửi cho người dùng, nên lưu
+   nguyên văn nghĩa là bất kỳ ai đọc được bảng này — bản sao lưu, ảnh chụp màn hình lúc trình
+   bày, một truy vấn SELECT vô tình — đều chiếm được tài khoản trong thời gian mã còn hạn.
+   Băm rồi thì đọc được bảng cũng không dựng lại được liên kết.
+
+   Ba cột used_at / expires_at / created_at là ba cách một mã hết hiệu lực, và cả ba đều cần:
+   dùng rồi thì không dùng lại được (chặn phát lại liên kết trong hộp thư), quá hạn thì hỏng
+   (thu hẹp khoảng thời gian một liên kết bị lộ còn giá trị), và created_at để đếm xem một
+   tài khoản vừa xin bao nhiêu lần trong ít phút vừa rồi.
+
+   Không xoá dòng khi đã dùng: bảng này chính là chỗ trả lời "tài khoản đó được đặt lại mật
+   khẩu lúc nào, từ máy nào". */
+CREATE TABLE dbo.PasswordResetToken (
+    token_id     BIGINT IDENTITY(1,1) NOT NULL,
+    user_id      INT          NOT NULL,
+    token_hash   CHAR(64)     NOT NULL,     -- SHA-256 dạng chữ số mười sáu
+    expires_at   DATETIME2(0) NOT NULL,
+    used_at      DATETIME2(0) NULL,
+    requested_ip VARCHAR(45)  NULL,         -- 45 ký tự: đủ cho địa chỉ IPv6 dạng dài nhất
+    created_at   DATETIME2(0) NOT NULL CONSTRAINT DF_Reset_createdAt DEFAULT (SYSDATETIME()),
+    CONSTRAINT PK_PasswordResetToken PRIMARY KEY (token_id),
+    CONSTRAINT UQ_Reset_tokenHash    UNIQUE (token_hash),
+    CONSTRAINT FK_Reset_Users        FOREIGN KEY (user_id) REFERENCES dbo.Users(user_id)
+);
+GO
+
+
 /* =============================================================================================
    4. INDEX
 
@@ -439,6 +812,11 @@ GO
    ============================================================================================= */
 
 CREATE INDEX IX_Users_role ON dbo.Users(role_id);
+
+-- Đếm số lần một tài khoản vừa xin đặt lại mật khẩu, để chặn kẻ dùng chức năng này làm
+-- công cụ dội thư vào hộp thư người khác. Chạy ở mỗi lần bấm "Quên mật khẩu".
+CREATE INDEX IX_Reset_user ON dbo.PasswordResetToken(user_id, created_at DESC);
+GO
 
 -- màn hình menu: chạy mỗi lần khách mở trang
 CREATE INDEX IX_Product_category ON dbo.Product(category_id, status, is_available) INCLUDE (name, price);
@@ -495,8 +873,63 @@ CREATE INDEX IX_Transaction_payment ON dbo.PaymentTransaction(payment_id);
 GO
 
 CREATE INDEX IX_Notification_order ON dbo.Notification(order_id, event_type);
+/* Hộp thông báo của khách: lấy tin mới nhất trước, và đếm số tin chưa đọc. Con số chưa đọc
+   được tính lại ở MỌI lượt mở trang của khách để huy hiệu trên thanh điều hướng không bao giờ
+   lệch, nên câu đếm đó phải rẻ — read_at nằm trong INCLUDE để đếm xong ngay trên index. */
+CREATE INDEX IX_Notification_user  ON dbo.Notification(user_id, notification_id DESC)
+    INCLUDE (read_at);
 CREATE INDEX IX_Issue_item         ON dbo.KitchenIssue(order_item_id, status);
 CREATE INDEX IX_Audit_entity       ON dbo.AuditLog(entity_type, entity_id, created_at DESC);
+GO
+
+/* Mỗi món chỉ có một dòng kế hoạch cho mỗi ngày. Hai đầu bếp cùng lập kế hoạch cho gà rán sẽ
+   thành hai con số mâu thuẫn mà không ai biết cái nào đúng.
+
+   Lọc bỏ dòng đã huỷ để lập nhầm rồi thu hồi vẫn lập lại được cho cùng món trong cùng ngày —
+   không lọc thì một lần bấm nhầm khoá luôn món đó tới hết ngày. */
+CREATE UNIQUE INDEX UX_PrepTask_date_product ON dbo.PrepTask(prep_date, product_id)
+    WHERE status IN ('PLANNED','DONE');
+
+/* Mỗi thu ngân chỉ có một ca đang mở. Chốt chặn quan trọng nhất của việc đối soát: hai ca mở
+   cùng lúc thì tiền của một lần bán rơi vào ca nào là chuyện ngẫu nhiên, và cả hai bảng đối
+   soát cuối ca đều sai mà không ai chỉ ra được sai ở đâu.
+
+   Lọc theo trạng thái để một người mở rồi đóng bao nhiêu ca trong ngày cũng được. */
+CREATE UNIQUE INDEX UX_Shift_openPerCashier ON dbo.Shift(cashier_id) WHERE status = 'OPEN';
+
+-- Bảng đối soát: mọi đơn tiền mặt của một ca, đọc khi đóng ca và khi xem lại lịch sử.
+CREATE INDEX IX_Orders_shift ON dbo.Orders(shift_id) WHERE shift_id IS NOT NULL;
+
+-- Ghi chú điều phối: đọc cùng lúc với danh sách đơn trên màn điều phối của thu ngân.
+CREATE INDEX IX_OrderNote_order ON dbo.OrderNote(order_id, created_at DESC);
+
+-- Ghi chú của một món: đọc mỗi lần mở màn chi tiết món, mới nhất trước.
+CREATE INDEX IX_ItemNote_item ON dbo.OrderItemNote(order_item_id, created_at DESC);
+
+-- Sổ bàn giao: luôn đọc theo ngày, và ngày gần nhất là ngày hay mở nhất.
+CREATE INDEX IX_KitNote_date ON dbo.KitchenNote(shift_date DESC, created_at DESC);
+GO
+
+/* Đơn treo của chính thu ngân đang đăng nhập, đọc mỗi lần mở màn bán hàng. Không ai xem đơn
+   treo của người khác nên mã thu ngân luôn là điều kiện lọc đầu tiên. */
+CREATE INDEX IX_PosHold_cashier ON dbo.PosHold(cashier_id, created_at DESC);
+
+/* Mỗi kỳ đúng một chỉ tiêu. Không có ràng buộc này thì hai chỉ tiêu cho tháng 8 cùng tồn tại,
+   và bảng điều khiển lấy phải cái nào là chuyện ngẫu nhiên — cùng loại lỗi mà
+   UX_Shift_openPerCashier sinh ra để chặn. */
+CREATE UNIQUE INDEX UX_Target_period ON dbo.RevenueTarget(period_type, period_start);
+
+/* Danh sách món quen của một khách, và câu hỏi "món này tôi đã đánh dấu chưa" chạy cho từng
+   dòng trên thực đơn. Ràng buộc UQ_Fav_customer_prod đã sinh sẵn index cho cặp khoá đó, nên
+   ở đây chỉ cần thêm cột ngày để danh sách sắp xếp không phải sắp lại. */
+CREATE INDEX IX_Fav_customer ON dbo.Favourite(customer_id, created_at DESC) INCLUDE (product_id);
+
+-- Mẫu đặt nhanh của một khách, đọc cùng lúc với lịch sử đơn.
+CREATE INDEX IX_Tpl_customer ON dbo.OrderTemplate(customer_id, created_at DESC);
+
+/* Đánh giá của một món: đọc mỗi lần mở trang chi tiết, kèm luôn điểm để tính trung bình mà
+   không phải mở tới bảng gốc. */
+CREATE INDEX IX_Review_product ON dbo.Review(product_id, created_at DESC) INCLUDE (rating);
 GO
 
 
@@ -684,23 +1117,30 @@ GO
 /* -------------------------------------- Sản phẩm ------------------------------------------
    Ba món cuối cố ý không đủ điều kiện lên menu, để kiểm chứng quy tắc lọc món ba tầng:
    tạm hết hàng · đã ngừng bán · thuộc danh mục đã tắt.
+
+   ẢNH MÓN là link ngoài, trỏ thẳng vào ảnh thật đúng với tên món (Unsplash cho món fast food,
+   Wikimedia Commons cho bánh trung thu) — không phải ảnh chỗ trống. Dự án không có thư mục
+   upload ảnh nên image_url chỉ chứa URL; máy chạy demo cần vào được Internet thì ảnh mới hiện,
+   mất mạng thì trang vẫn chạy, chỉ là ô ảnh trống. Tham số ?w=600&h=400&fit=crop bắt Unsplash
+   cắt sẵn về đúng khổ thẻ món, khỏi tải ảnh gốc vài MB. Cả cột chỉ có VARCHAR(255) nên khi
+   thay ảnh khác phải giữ URL ngắn — link dài hơn sẽ bị cắt cụt và ảnh chết.
    ------------------------------------------------------------------------------------------ */
 INSERT INTO dbo.Product (category_id, name, description, price, image_url, is_available, status)
 SELECT c.category_id, v.name, v.description, v.price, v.image_url, v.is_available, v.status
 FROM (VALUES
-    (N'Burger',       N'Burger Bò Phô Mai',   N'Bò nướng, phô mai cheddar, rau tươi',   55000., 'https://placehold.co/400x300/fff1f0/d92d20?text=Burger+Bo+Pho+Mai',  1, 'ACTIVE'),
-    (N'Burger',       N'Burger Gà Giòn',      N'Gà chiên giòn, sốt mayonnaise',         49000., 'https://placehold.co/400x300/fff1f0/d92d20?text=Burger+Ga+Gion',  1, 'ACTIVE'),
-    (N'Gà rán',       N'Gà Rán 1 Miếng',      N'Gà rán truyền thống',                   35000., 'https://placehold.co/400x300/fff1f0/d92d20?text=Ga+Ran+1+Mieng',   1, 'ACTIVE'),
-    (N'Gà rán',       N'Gà Rán 3 Miếng',      N'Phần ba miếng gà rán',                  95000., 'https://placehold.co/400x300/fff1f0/d92d20?text=Ga+Ran+3+Mieng',   1, 'ACTIVE'),
-    (N'Khoai tây',    N'Khoai Tây Chiên (M)', N'Khoai tây chiên cỡ vừa',                25000., 'https://placehold.co/400x300/fff1f0/d92d20?text=Khoai+Tay+Chien+M',    1, 'ACTIVE'),
-    (N'Khoai tây',    N'Khoai Tây Chiên (L)', N'Khoai tây chiên cỡ lớn',                35000., 'https://placehold.co/400x300/fff1f0/d92d20?text=Khoai+Tay+Chien+L',    1, 'ACTIVE'),
-    (N'Đồ uống',      N'Pepsi (M)',           N'Nước ngọt có ga',                       15000., 'https://placehold.co/400x300/fff1f0/d92d20?text=Pepsi+M',      1, 'ACTIVE'),
-    (N'Đồ uống',      N'Trà Đào Cam Sả',      N'Trà đào cam sả',                        29000., 'https://placehold.co/400x300/fff1f0/d92d20?text=Tra+Dao+Cam+Sa',    1, 'ACTIVE'),
-    (N'Combo',        N'Combo Burger Solo',   N'Burger bò, khoai tây cỡ vừa và Pepsi',  85000., 'https://placehold.co/400x300/fff1f0/d92d20?text=Combo+Burger+Solo', 1, 'ACTIVE'),
-    (N'Combo',        N'Combo Gia Đình',      N'Ba gà rán, hai khoai lớn và bốn nước', 259000., 'https://placehold.co/400x300/fff1f0/d92d20?text=Combo+Gia+Dinh',   1, 'ACTIVE'),
-    (N'Gà rán',       N'Gà Rán Cay Hàn Quốc', N'Sốt cay kiểu Hàn — tạm hết hàng',       45000., 'https://placehold.co/400x300/fff1f0/d92d20?text=Ga+Ran+Cay+Han+Quoc',     0, 'ACTIVE'),
-    (N'Đồ uống',      N'Nước Cam Ép',         N'Đã ngừng kinh doanh',                   30000., 'https://placehold.co/400x300/fff1f0/d92d20?text=Nuoc+Cam+Ep',     1, 'INACTIVE'),
-    (N'Món theo mùa', N'Bánh Trung Thu',      N'Món theo mùa, ngoài menu thường',       60000., 'https://placehold.co/400x300/fff1f0/d92d20?text=Banh+Trung+Thu',  1, 'ACTIVE')
+    (N'Burger',       N'Burger Bò Phô Mai',   N'Bò nướng, phô mai cheddar, rau tươi',   55000., 'https://images.unsplash.com/photo-1568901346375-23c9450c58cd?w=600&h=400&fit=crop', 1, 'ACTIVE'),
+    (N'Burger',       N'Burger Gà Giòn',      N'Gà chiên giòn, sốt mayonnaise',         49000., 'https://images.unsplash.com/photo-1606755962773-d324e0a13086?w=600&h=400&fit=crop', 1, 'ACTIVE'),
+    (N'Gà rán',       N'Gà Rán 1 Miếng',      N'Gà rán truyền thống',                   35000., 'https://images.unsplash.com/photo-1580217593608-61931cefc821?w=600&h=400&fit=crop', 1, 'ACTIVE'),
+    (N'Gà rán',       N'Gà Rán 3 Miếng',      N'Phần ba miếng gà rán',                  95000., 'https://images.unsplash.com/photo-1626645738196-c2a7c87a8f58?w=600&h=400&fit=crop', 1, 'ACTIVE'),
+    (N'Khoai tây',    N'Khoai Tây Chiên (M)', N'Khoai tây chiên cỡ vừa',                25000., 'https://images.unsplash.com/photo-1630431341973-02e1b662ec35?w=600&h=400&fit=crop', 1, 'ACTIVE'),
+    (N'Khoai tây',    N'Khoai Tây Chiên (L)', N'Khoai tây chiên cỡ lớn',                35000., 'https://images.unsplash.com/photo-1573080496219-bb080dd4f877?w=600&h=400&fit=crop', 1, 'ACTIVE'),
+    (N'Đồ uống',      N'Pepsi (M)',           N'Nước ngọt có ga',                       15000., 'https://images.unsplash.com/photo-1629203851122-3726ecdf080e?w=600&h=400&fit=crop', 1, 'ACTIVE'),
+    (N'Đồ uống',      N'Trà Đào Cam Sả',      N'Trà đào cam sả',                        29000., 'https://images.unsplash.com/photo-1499638673689-79a0b5115d87?w=600&h=400&fit=crop', 1, 'ACTIVE'),
+    (N'Combo',        N'Combo Burger Solo',   N'Burger bò, khoai tây cỡ vừa và Pepsi',  85000., 'https://images.unsplash.com/photo-1550547660-d9450f859349?w=600&h=400&fit=crop',    1, 'ACTIVE'),
+    (N'Combo',        N'Combo Gia Đình',      N'Ba gà rán, hai khoai lớn và bốn nước', 259000., 'https://images.unsplash.com/photo-1614398751058-eb2e0bf63e53?w=600&h=400&fit=crop', 1, 'ACTIVE'),
+    (N'Gà rán',       N'Gà Rán Cay Hàn Quốc', N'Sốt cay kiểu Hàn — tạm hết hàng',       45000., 'https://images.unsplash.com/photo-1575932444877-5106bee2a599?w=600&h=400&fit=crop', 0, 'ACTIVE'),
+    (N'Đồ uống',      N'Nước Cam Ép',         N'Đã ngừng kinh doanh',                   30000., 'https://images.unsplash.com/photo-1613478223719-2ab802602423?w=600&h=400&fit=crop', 1, 'INACTIVE'),
+    (N'Món theo mùa', N'Bánh Trung Thu',      N'Món theo mùa, ngoài menu thường',       60000., 'https://upload.wikimedia.org/wikipedia/commons/thumb/3/35/B%C3%A1nh_trung_thu_2.JPG/500px-B%C3%A1nh_trung_thu_2.JPG', 1, 'ACTIVE')
    ) AS v(category_name, name, description, price, image_url, is_available, status)
 JOIN dbo.Category c ON c.name = v.category_name;
 GO
@@ -1012,6 +1452,184 @@ WHERE  o.idempotency_key = 'demo-0005';
 GO
 
 
+/* -- Kế hoạch chuẩn bị sẵn của bếp cho hôm nay ----------------------------------------------
+   Ba dòng dựng ra ba tình huống khác nhau để màn hàng chờ có đủ thứ để nhìn: còn thiếu, làm
+   dư, và đã chốt. Chỉ có dữ liệu "còn thiếu" thì cột trạng thái chỉ hiện được một màu, và
+   người thử không biết hai màu kia trông ra sao.
+   ------------------------------------------------------------------------------------------ */
+DECLARE @kit1p INT = (SELECT user_id FROM dbo.Users WHERE email = 'kitchen1@fastfood.vn');
+DECLARE @kit2p INT = (SELECT user_id FROM dbo.Users WHERE email = 'kitchen2@fastfood.vn');
+DECLARE @today DATE = CAST(SYSDATETIME() AS DATE);
+
+INSERT INTO dbo.PrepTask (product_id, prep_date, planned_qty, done_qty, note, created_by, status)
+SELECT p.product_id, @today, v.planned, v.done, v.note, v.author, v.status
+FROM   (VALUES
+          (N'Gà Rán 3 Miếng', 40, 22, N'Nướng sẵn trước 11h, giữ trong tủ ấm', @kit1p, 'PLANNED'),
+          (N'Trà Đào Cam Sả', 30, 34, N'Pha dư một mẻ vì trưa nay đông',        @kit2p, 'PLANNED'),
+          (N'Khoai Tây Chiên (M)', 25, 25, N'Xong từ đầu ca',                    @kit1p, 'DONE')
+       ) AS v(ten_mon, planned, done, note, author, status)
+JOIN   dbo.Product p ON p.name = v.ten_mon;
+
+/* -- Ghi chú của bếp -----------------------------------------------------------------------
+   Một ghi chú gắn với món, hai dòng bàn giao ca của hai ngày khác nhau. Ngoài việc cho hai màn
+   hình có nội dung ngay khi cài xong, chúng còn dựng ra phép so sánh đáng nhìn nhất: ghi chú
+   KHÔNG làm tăng số cảnh báo đỏ trên màn thu ngân, khác hẳn sự cố bếp.
+   ------------------------------------------------------------------------------------------ */
+INSERT INTO dbo.OrderItemNote (order_item_id, author_id, content)
+SELECT TOP 1 oi.order_item_id, @kit1p, N'Khách dặn ít cay, đã làm theo'
+FROM   dbo.OrderItem oi
+JOIN   dbo.Orders    o ON o.order_id = oi.order_id
+WHERE  o.order_status = 'COMPLETED'
+ORDER BY oi.order_item_id;
+
+INSERT INTO dbo.KitchenNote (shift_date, author_id, content) VALUES
+ (@today, @kit1p, N'Lò số 2 nóng chậm, mỗi mẻ gà cần thêm khoảng 5 phút. Đã báo quản lý.'),
+ (DATEADD(DAY,-1,@today), @kit2p, N'Hết khay giấy cỡ lớn từ giữa ca chiều, tạm dùng khay nhỏ.');
+
+/* Tên món gõ sai thì phép JOIN ở trên lặng lẽ bỏ qua dòng đó và không ai biết — đúng loại lỗi
+   mà mục 8 sinh ra để bắt. Chặn ngay tại đây thay vì đợi tới lúc mở màn hình mới thấy thiếu. */
+IF (SELECT COUNT(*) FROM dbo.PrepTask)       <> 3
+OR (SELECT COUNT(*) FROM dbo.OrderItemNote)  <> 1
+OR (SELECT COUNT(*) FROM dbo.KitchenNote)    <> 2
+    THROW 50005, 'Du lieu mau cua bep thieu dong: kiem tra lai ten mon va dieu kien JOIN.', 1;
+GO
+
+
+/* -- Ca làm việc, ghi chú điều phối và đơn treo của thu ngân --------------------------------
+   Ba màn hình của thu ngân mở ra sẽ trống trơn nếu không có khối này. Dữ liệu cố ý dựng đủ cả
+   hai trạng thái của ca: một ca đang mở để thao tác đóng ca thử được ngay, và một ca đã đóng
+   có chênh lệch âm — vì bảng đối soát mà mọi dòng đều khớp thì cột chênh lệch không bao giờ
+   hiện ra màu cảnh báo, và người thử không biết nó trông ra sao.
+   ------------------------------------------------------------------------------------------ */
+DECLARE @cash1s INT = (SELECT user_id FROM dbo.Users WHERE email = 'cashier1@fastfood.vn');
+DECLARE @cash2s INT = (SELECT user_id FROM dbo.Users WHERE email = 'cashier2@fastfood.vn');
+DECLARE @adminId INT = (SELECT user_id FROM dbo.Users WHERE email = 'admin@fastfood.vn');
+DECLARE @bay_gio DATETIME2(0) = SYSDATETIME();
+
+INSERT INTO dbo.Shift (cashier_id, opened_at, opening_cash, note, status)
+VALUES (@cash1s, DATEADD(HOUR, -3, @bay_gio), 500000,
+        N'Nhận ca từ anh Quang, két có sẵn 500.000 tiền lẻ.', 'OPEN');
+DECLARE @shift1 INT = CAST(SCOPE_IDENTITY() AS INT);
+
+INSERT INTO dbo.Shift (cashier_id, opened_at, opening_cash, closed_at,
+                       counted_cash, expected_cash, variance, note, status)
+VALUES (@cash2s, DATEADD(HOUR, -8, DATEADD(DAY, -1, @bay_gio)), 500000,
+        DATEADD(DAY, -1, @bay_gio), 480000, 500000, -20000,
+        N'Cuối ca thiếu 20.000, đã báo quản lý. Nghi trả nhầm tiền thừa cho khách.', 'CLOSED');
+
+/* Gắn đơn tại quầy của chính thu ngân đó vào ca đang mở, để con số "lẽ ra phải có trong két"
+   khác tiền đầu ca — không gắn thì màn đóng ca chỉ hiện đúng 500.000 và không chứng minh được
+   phép cộng nào cả. CK_Orders_shiftPosOnly chỉ cho phép đơn POS mang mã ca. */
+UPDATE dbo.Orders SET shift_id = @shift1
+WHERE  order_source = 'POS' AND created_by_user_id = @cash1s;
+
+INSERT INTO dbo.OrderNote (order_id, author_id, content)
+SELECT TOP 1 o.order_id, @cash1s, N'Khách gọi báo đến muộn khoảng 15 phút, giữ món giúp.'
+FROM   dbo.Orders o WHERE o.order_status = 'READY' ORDER BY o.order_id;
+
+INSERT INTO dbo.OrderNote (order_id, author_id, content)
+SELECT TOP 1 o.order_id, @cash1s, N'Đã gọi khách hai lần chưa được, thử lại sau 10 phút.'
+FROM   dbo.Orders o WHERE o.order_status = 'READY' ORDER BY o.order_id DESC;
+
+/* Hai phiếu treo dựng ra đúng tình huống sinh ra bảng này: đang tính tiền thì khách bảo chờ. */
+INSERT INTO dbo.PosHold (cashier_id, label, note) VALUES
+ (@cash1s, N'Bàn 3 — anh áo xanh',  N'Chờ bạn đi cùng tới gọi thêm đồ uống'),
+ (@cash1s, N'Khách gọi điện đặt',   NULL);
+
+INSERT INTO dbo.PosHoldItem (hold_id, product_id, quantity)
+SELECT h.hold_id, p.product_id, v.qty
+FROM  (VALUES
+         (N'Bàn 3 — anh áo xanh', N'Burger Bò Phô Mai',   2),
+         (N'Bàn 3 — anh áo xanh', N'Pepsi (M)',           2),
+         (N'Khách gọi điện đặt',  N'Combo Gia Đình',      1),
+         (N'Khách gọi điện đặt',  N'Khoai Tây Chiên (L)', 1)
+      ) AS v(label, ten_mon, qty)
+JOIN  dbo.PosHold h ON h.label = v.label AND h.cashier_id = @cash1s
+JOIN  dbo.Product p ON p.name  = v.ten_mon;
+
+/* -- Chỉ tiêu doanh thu ---------------------------------------------------------------------
+   Một chỉ tiêu tháng và một chỉ tiêu ngày, để bảng điều khiển hiện được cả hai mức cùng lúc.
+   ------------------------------------------------------------------------------------------ */
+INSERT INTO dbo.RevenueTarget (period_type, period_start, target_amount, note, created_by) VALUES
+ ('MONTH', DATEFROMPARTS(YEAR(@bay_gio), MONTH(@bay_gio), 1), 150000000,
+  N'Chỉ tiêu tháng, đã tính cả tuần cao điểm cuối tháng.', @adminId),
+ ('DAY',   CAST(@bay_gio AS DATE), 5000000, N'Chỉ tiêu ngày thường trong tuần.', @adminId);
+
+/* -- Của riêng khách: món quen, mẫu đặt nhanh, đánh giá -------------------------------------
+   Hai dòng dưới đây cố ý trỏ vào món KHÔNG bán được, và đó là phần đáng giá nhất của khối này:
+     · "Gà Rán Cay Hàn Quốc" đang tạm hết hàng  → dựng sẵn trạng thái "món quen đang hết"
+     · "Nước Cam Ép" đã ngừng kinh doanh        → dựng sẵn cảnh báo khi nạp mẫu vào giỏ
+   Toàn món còn bán thì hai nhánh cảnh báo đó không có gì để xem, và lỗi ở chúng sẽ chỉ lộ ra
+   khi có khách thật gặp phải.
+   ------------------------------------------------------------------------------------------ */
+INSERT INTO dbo.Favourite (customer_id, product_id, note)
+SELECT u.user_id, p.product_id, v.note
+FROM  (VALUES
+         ('customer1@gmail.com', N'Gà Rán Cay Hàn Quốc', N'Ít cay thôi, xin thêm một gói tương'),
+         ('customer1@gmail.com', N'Trà Đào Cam Sả',      N'Không đá'),
+         ('customer2@gmail.com', N'Combo Gia Đình',      NULL)
+      ) AS v(email, ten_mon, note)
+JOIN  dbo.Users   u ON u.email = v.email
+JOIN  dbo.Product p ON p.name  = v.ten_mon;
+
+INSERT INTO dbo.OrderTemplate (customer_id, name)
+SELECT u.user_id, v.ten
+FROM  (VALUES
+         ('customer1@gmail.com', N'Bữa trưa quen'),
+         ('customer1@gmail.com', N'Đặt cho cả phòng')
+      ) AS v(email, ten)
+JOIN  dbo.Users u ON u.email = v.email;
+
+INSERT INTO dbo.OrderTemplateItem (template_id, product_id, quantity)
+SELECT t.template_id, p.product_id, v.qty
+FROM  (VALUES
+         (N'Bữa trưa quen',    N'Burger Gà Giòn',      1),
+         (N'Bữa trưa quen',    N'Khoai Tây Chiên (M)', 1),
+         (N'Bữa trưa quen',    N'Pepsi (M)',           1),
+         (N'Đặt cho cả phòng', N'Combo Gia Đình',      2),
+         (N'Đặt cho cả phòng', N'Nước Cam Ép',         3)
+      ) AS v(ten_mau, ten_mon, qty)
+JOIN  dbo.OrderTemplate t ON t.name = v.ten_mau
+JOIN  dbo.Product       p ON p.name = v.ten_mon;
+
+/* Đánh giá SUY RA từ đơn đã hoàn tất chứ không viết tay, để dữ liệu mẫu tuân đúng chính quy tắc
+   mà ReviewService áp: chỉ khách đã mua và đã nhận món mới đánh giá được. Viết tay thì rất dễ
+   tạo ra một đánh giá mà chính hệ thống sẽ từ chối nếu người dùng thật bấm gửi. */
+;WITH da_mua AS (
+    SELECT DISTINCT o.customer_id, oi.product_id
+    FROM   dbo.Orders    o
+    JOIN   dbo.OrderItem oi ON oi.order_id = o.order_id
+    WHERE  o.order_status = 'COMPLETED' AND o.customer_id IS NOT NULL
+), xep AS (
+    SELECT customer_id, product_id,
+           ROW_NUMBER() OVER (ORDER BY customer_id, product_id) AS stt
+    FROM   da_mua
+)
+INSERT INTO dbo.Review (product_id, customer_id, rating, comment)
+SELECT x.product_id, x.customer_id,
+       CASE x.stt WHEN 1 THEN 5 WHEN 2 THEN 4 ELSE 3 END,
+       CASE x.stt WHEN 1 THEN N'Món nóng giòn, lấy đúng giờ hẹn. Sẽ đặt lại.'
+                  WHEN 2 THEN N'Ngon, nhưng hôm nay mặn hơn mọi khi một chút.'
+                  ELSE       N'Bình thường, được cái đặt trước nên không phải xếp hàng.' END
+FROM   xep x WHERE x.stt <= 3;
+
+/* Cùng loại chốt chặn với THROW 50005 ở trên. Ba dòng cuối kiểm thứ mà phép đếm thuần không
+   thấy: đơn tại quầy có thật sự được gắn vào ca không, và đánh giá có sinh ra được từ đơn đã
+   hoàn tất không — hai chỗ mà một thay đổi ở dữ liệu đơn hàng sẽ âm thầm làm rỗng. */
+IF (SELECT COUNT(*) FROM dbo.Shift)             <> 2
+OR (SELECT COUNT(*) FROM dbo.OrderNote)         <> 2
+OR (SELECT COUNT(*) FROM dbo.PosHold)           <> 2
+OR (SELECT COUNT(*) FROM dbo.PosHoldItem)       <> 4
+OR (SELECT COUNT(*) FROM dbo.RevenueTarget)     <> 2
+OR (SELECT COUNT(*) FROM dbo.Favourite)         <> 3
+OR (SELECT COUNT(*) FROM dbo.OrderTemplate)     <> 2
+OR (SELECT COUNT(*) FROM dbo.OrderTemplateItem) <> 5
+OR (SELECT COUNT(*) FROM dbo.Review)             < 3
+OR (SELECT COUNT(*) FROM dbo.Orders WHERE shift_id IS NOT NULL) = 0
+    THROW 50006, 'Du lieu mau cua thu ngan / quan tri / khach hang thieu dong: kiem tra lai ten mon, email va dieu kien JOIN.', 1;
+GO
+
+
 /* -- Tin đã gửi cho khách ------------------------------------------------------------------
    Suy ra từ các mốc thời gian của đơn, cùng lý do như khối nhật ký ngay bên dưới: viết tay
    ở từng đơn thì luôn sót. Bản trước chỉ có hai dòng cho mười một đơn — trong khi hai loại
@@ -1077,6 +1695,17 @@ INSERT INTO dbo.Notification (user_id, order_id, channel, event_type, content, s
 SELECT t.customer_id, t.order_id, 'MOCK', t.event_type, t.content, 'SENT', t.sent_at
 FROM   tin t
 WHERE  t.sent_at IS NOT NULL;
+
+/* Tin của đơn đã khép lại thì coi như khách đã đọc, tin của đơn còn đang chạy thì để nguyên
+   chưa đọc. Đánh dấu đã đọc tất cả sẽ dựng ra một hộp thông báo phẳng lì: mở lên không thấy
+   huy hiệu, không thấy dòng nào nổi bật, và cũng không thấy nút "đánh dấu đã đọc hết" làm gì.
+   Để nguyên chưa đọc tất cả thì ngược lại — huy hiệu đếm cả những tin từ đơn đã giao xong từ
+   đời nào. Chia theo trạng thái đơn cho ra đúng cảnh mà một khách dùng thật sẽ thấy. */
+UPDATE  n
+SET     n.read_at = DATEADD(MINUTE, 4, n.sent_at)
+FROM    dbo.Notification n
+JOIN    dbo.Orders o ON o.order_id = n.order_id
+WHERE   o.order_status IN ('COMPLETED','CANCELLED','EXPIRED');
 GO
 
 
@@ -1172,7 +1801,7 @@ GO
    Chạy xong file, đối chiếu các bảng kết quả bên dưới. Nếu khớp là database đã sẵn sàng.
    ============================================================================================= */
 
-/* 8.1 · Số lượng bản ghi từng bảng — kỳ vọng cả 13 bảng đều khác 0.
+/* 8.1 · Số lượng bản ghi từng bảng — kỳ vọng cả 25 bảng đều khác 0.
         Bảng nào bằng 0 nghĩa là có một màn hình chưa có dữ liệu để thử. */
 SELECT 'Role' AS bang, COUNT(*) AS so_dong FROM dbo.Role
 UNION ALL SELECT 'Users',              COUNT(*) FROM dbo.Users
@@ -1180,12 +1809,24 @@ UNION ALL SELECT 'Category',           COUNT(*) FROM dbo.Category
 UNION ALL SELECT 'Product',            COUNT(*) FROM dbo.Product
 UNION ALL SELECT 'Cart',               COUNT(*) FROM dbo.Cart
 UNION ALL SELECT 'CartItem',           COUNT(*) FROM dbo.CartItem
+UNION ALL SELECT 'Shift',              COUNT(*) FROM dbo.Shift
 UNION ALL SELECT 'Orders',             COUNT(*) FROM dbo.Orders
 UNION ALL SELECT 'OrderItem',          COUNT(*) FROM dbo.OrderItem
+UNION ALL SELECT 'OrderNote',          COUNT(*) FROM dbo.OrderNote
 UNION ALL SELECT 'Payment',            COUNT(*) FROM dbo.Payment
 UNION ALL SELECT 'PaymentTransaction', COUNT(*) FROM dbo.PaymentTransaction
 UNION ALL SELECT 'Notification',       COUNT(*) FROM dbo.Notification
 UNION ALL SELECT 'KitchenIssue',       COUNT(*) FROM dbo.KitchenIssue
+UNION ALL SELECT 'PrepTask',           COUNT(*) FROM dbo.PrepTask
+UNION ALL SELECT 'OrderItemNote',      COUNT(*) FROM dbo.OrderItemNote
+UNION ALL SELECT 'KitchenNote',        COUNT(*) FROM dbo.KitchenNote
+UNION ALL SELECT 'PosHold',            COUNT(*) FROM dbo.PosHold
+UNION ALL SELECT 'PosHoldItem',        COUNT(*) FROM dbo.PosHoldItem
+UNION ALL SELECT 'RevenueTarget',      COUNT(*) FROM dbo.RevenueTarget
+UNION ALL SELECT 'Favourite',          COUNT(*) FROM dbo.Favourite
+UNION ALL SELECT 'OrderTemplate',      COUNT(*) FROM dbo.OrderTemplate
+UNION ALL SELECT 'OrderTemplateItem',  COUNT(*) FROM dbo.OrderTemplateItem
+UNION ALL SELECT 'Review',             COUNT(*) FROM dbo.Review
 UNION ALL SELECT 'AuditLog',           COUNT(*) FROM dbo.AuditLog;
 
 /* 8.2 · Menu hiển thị cho khách — đây chính là truy vấn mà màn hình menu phải dùng.
@@ -1252,8 +1893,13 @@ WHERE   oi.received_at IS NOT NULL AND oi.handed_over_at IS NULL;
 /* 8.8 · Tin đã gửi cho khách, đếm theo loại sự kiện.
         Kỳ vọng đủ CẢ BỐN loại. Thiếu ORDER_CANCELLED hoặc ORDER_EXPIRED là dấu hiệu dữ liệu
         mẫu chỉ dựng đường đi thuận lợi — hai nhánh khách mất đơn hoặc mất tiền không có gì
-        để xem. Tin chỉ sinh cho đơn đặt trước; đơn tại quầy không có tin nào là đúng. */
-SELECT  n.event_type AS loai_tin, COUNT(*) AS so_tin, MAX(n.sent_at) AS gui_gan_nhat
+        để xem. Tin chỉ sinh cho đơn đặt trước; đơn tại quầy không có tin nào là đúng.
+
+        Cột chua_doc phải có ít nhất một số khác 0, nếu không thì hộp thông báo của khách mở ra
+        không còn tin nào mới và huy hiệu trên thanh điều hướng không bao giờ hiện. */
+SELECT  n.event_type AS loai_tin, COUNT(*) AS so_tin,
+        SUM(CASE WHEN n.read_at IS NULL THEN 1 ELSE 0 END) AS chua_doc,
+        MAX(n.sent_at) AS gui_gan_nhat
 FROM    dbo.Notification n
 GROUP BY n.event_type
 ORDER BY loai_tin;

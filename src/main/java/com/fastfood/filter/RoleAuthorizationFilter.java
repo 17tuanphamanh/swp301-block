@@ -28,7 +28,7 @@ public class RoleAuthorizationFilter implements Filter {
         HttpServletRequest req = (HttpServletRequest) request;
         HttpServletResponse resp = (HttpServletResponse) response;
 
-        String path = req.getRequestURI().substring(req.getContextPath().length());
+        String path = RequestPath.of(req);
         boolean isApi = path.startsWith("/api/");
 
         User user = WebUtil.currentUser(req);
@@ -38,10 +38,13 @@ public class RoleAuthorizationFilter implements Filter {
         }
 
         RoleName required = requiredRole(path);
-        RoleName actual = RoleName.from(user.getRoleName());
+        // Vai trò đọc từ cơ sở dữ liệu nên về nguyên tắc luôn nằm trong bốn giá trị đã biết,
+        // nhưng nếu có ngày nó không nằm thì kết cục phải là "không có quyền", chứ không phải
+        // một trang lỗi 500 — hỏng dữ liệu không được biến thành cửa mở.
+        RoleName actual = RoleName.parse(user.getRoleName());
 
         // Quản trị viên xem được mọi màn hình vận hành để hỗ trợ và kiểm tra
-        boolean allowed = actual == required || actual == RoleName.ADMIN;
+        boolean allowed = actual != null && (actual == required || actual == RoleName.ADMIN);
         if (!allowed) {
             deny(req, resp, isApi, HttpServletResponse.SC_FORBIDDEN);
             return;
@@ -69,13 +72,25 @@ public class RoleAuthorizationFilter implements Filter {
         req.getRequestDispatcher("/WEB-INF/views/error/403.jsp").forward(req, resp);
     }
 
-    private RoleName requiredRole(String path) {
-        if (path.startsWith("/staff/")) {
+    /**
+     * Vai trò cần có để đi vào một địa chỉ.
+     * <p>
+     * Công khai và tĩnh để bài test đọc thẳng được bảng ánh xạ này. Nó là quyết định về quyền
+     * chứ không phải chi tiết cài đặt, và cái sai ở đây — một tiền tố rơi vào nhánh mặc định —
+     * không làm hỏng màn hình nào cả, nên chỉ có bài test mới phát hiện ra.
+     * <p>
+     * Nhánh mặc định trả về {@code ADMIN} chứ không phải "ai cũng được": địa chỉ lạ mà lọt vào
+     * đây thì phải là cửa đóng, không phải cửa mở. Nhưng bộ lọc chỉ chạy trên những tiền tố khai
+     * báo trong {@code web.xml}, nên một servlet đặc quyền đặt ngoài các tiền tố đó sẽ không đi
+     * qua đây lần nào — đó là chỗ {@code RoutePolicyTest} canh giúp.
+     */
+    public static RoleName requiredRole(String path) {
+        if (path != null && path.startsWith("/staff/")) {
             return RoleName.CASHIER;
         }
         // Hàng chờ bếp lộ ra qua hai đường: trang /kitchen/* và dữ liệu JSON /api/kds/*.
         // Thiếu nhánh thứ hai thì bất kỳ ai đăng nhập cũng đọc được toàn bộ việc của bếp.
-        if (path.startsWith("/kitchen/") || path.startsWith("/api/kds/")) {
+        if (path != null && (path.startsWith("/kitchen/") || path.startsWith("/api/kds/"))) {
             return RoleName.KITCHEN;
         }
         return RoleName.ADMIN;

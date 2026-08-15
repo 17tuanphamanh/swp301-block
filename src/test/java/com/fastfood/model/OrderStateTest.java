@@ -218,13 +218,9 @@ class OrderStateTest {
     @DisplayName("Chuyển trạng thái của đơn")
     class StatusMachine {
 
-        @Test
-        @DisplayName("Chỉ đơn đã sẵn sàng mới giao được")
-        void onlyReadyCanBeHandedOff() {
-            assertTrue(OrderStatus.READY.isHandoffable());
-            assertFalse(OrderStatus.PREPARING.isHandoffable());
-            assertFalse(OrderStatus.CONFIRMED.isHandoffable());
-        }
+        // Mốc "chỉ đơn sẵn sàng mới giao được" không kiểm ở đây nữa: nó không chỉ là một
+        // trạng thái mà còn đòi quầy đã nhận đủ món và tiền đã thu, nên chỗ kiểm đúng là
+        // StaffOrderService.handoff — xem OnlinePreorderFlowIT và CounterQueueIT.
 
         @Test
         @DisplayName("Ba trạng thái kết thúc thì không đi tiếp được")

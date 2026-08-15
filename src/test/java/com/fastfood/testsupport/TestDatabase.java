@@ -33,6 +33,8 @@ public final class TestDatabase {
 
     private static boolean prepared;
     private static boolean available;
+    /** Kết nối được nhưng lược đồ chạy hỏng — phải báo đỏ, không được bỏ qua. */
+    private static boolean schemaBroken;
     private static String unavailableReason;
 
     private TestDatabase() {
@@ -40,24 +42,64 @@ public final class TestDatabase {
 
     /**
      * Bảo đảm database test đã sẵn sàng.
+     * <p>
+     * Phân biệt <b>hai chuyện khác hẳn nhau</b> mà trước đây cùng cho ra một kết quả:
+     * <ul>
+     *   <li><b>Không kết nối được</b> — máy chạy test không có SQL Server. Trả về false để cả
+     *       nhóm tích hợp tự bỏ qua; đó là môi trường thiếu, không phải mã nguồn sai.</li>
+     *   <li><b>Kết nối được nhưng tệp lược đồ chạy hỏng</b> — quên một dòng {@code DROP},
+     *       viết sai ràng buộc, đặt sai thứ tự khoá ngoại. Đây là <b>lỗi trong mã nguồn</b> nên
+     *       phải ném ra và làm cả lượt chạy đỏ.</li>
+     * </ul>
+     * Gộp hai thứ này lại từng khiến 111 bài kiểm thử tích hợp im lặng biến mất khỏi lượt chạy,
+     * mà bảng tổng kết vẫn ghi BUILD SUCCESS — đúng thứ mà quy ước "đỏ nghĩa là mã sai" sinh ra
+     * để ngăn chặn.
      *
-     * @return true nếu dùng được; false nghĩa là máy chạy test không có SQL Server và
-     *         các bài test tích hợp nên tự bỏ qua thay vì báo đỏ
+     * @return true nếu dùng được; false nghĩa là máy chạy test không có SQL Server
+     * @throws IllegalStateException khi kết nối được nhưng dựng lại lược đồ thất bại
      */
     public static synchronized boolean ensureReady() {
         if (prepared) {
+            if (!available && schemaBroken) {
+                throw new IllegalStateException(unavailableReason);
+            }
             return available;
         }
         prepared = true;
         try {
             AppConfig.init();
-            rebuild();
-            available = true;
+            available = canConnect();
+            if (!available) {
+                return false;
+            }
+            rebuildWithRetry();
         } catch (Exception e) {
             available = false;
-            unavailableReason = e.getClass().getSimpleName() + ": " + e.getMessage();
+            schemaBroken = true;
+            unavailableReason = "Tep luoc do khong chay lai duoc — day la loi ma nguon, "
+                    + "khong phai moi truong thieu.\n" + e.getMessage();
+            throw new IllegalStateException(unavailableReason, e);
         }
-        return available;
+        return true;
+    }
+
+    /**
+     * Thử mở một kết nối tới chính máy chủ (không phải database test, vì nó có thể chưa tồn tại).
+     * Hỏng ở bước này mới thật sự là "máy không có SQL Server".
+     */
+    private static boolean canConnect() {
+        try {
+            Properties p = loadTestProperties();
+            String masterUrl = p.getProperty("db.url").replaceFirst(
+                    "databaseName=[^;]+", "databaseName=master");
+            try (java.sql.Connection ignored = java.sql.DriverManager.getConnection(
+                    masterUrl, p.getProperty("db.username"), p.getProperty("db.password"))) {
+                return true;
+            }
+        } catch (Exception e) {
+            unavailableReason = e.getClass().getSimpleName() + ": " + e.getMessage();
+            return false;
+        }
     }
 
     public static String unavailableReason() {
@@ -65,6 +107,52 @@ public final class TestDatabase {
     }
 
     // ------------------------------------------------------------------ dựng lại
+
+    /** Mã lỗi SQL Server: nạn nhân của khoá chết, và hết giờ chờ khoá. */
+    private static final int DEADLOCK_VICTIM = 1205;
+    private static final int LOCK_TIMEOUT = 1222;
+    private static final int LAN_THU_TOI_DA = 3;
+
+    /**
+     * Dựng lại lược đồ, thử lại khi vướng <b>tranh chấp khoá</b>.
+     * <p>
+     * Đây là một loại thất bại thứ ba, khác cả hai loại mà {@link #ensureReady} phân biệt: không
+     * phải máy thiếu SQL Server, cũng không phải tệp lược đồ viết sai. Script mở đầu bằng
+     * {@code ALTER DATABASE ... WITH ROLLBACK IMMEDIATE}, lệnh cần độc quyền truy cập; bất kỳ ai
+     * đang mở kết nối tới database test cùng lúc — một máy chủ Tomcat còn chạy, một cửa sổ
+     * truy vấn còn mở, hay chính lượt chạy test trước còn đang tắt máy ảo — đều làm nó thành
+     * nạn nhân của một khoá chết.
+     * <p>
+     * Thất bại kiểu đó <b>không</b> có nghĩa là mã nguồn sai, nên để nó làm đỏ cả lượt chạy là
+     * vi phạm đúng quy ước mà lớp này sinh ra để giữ. Nhưng bỏ qua hẳn cũng sai, vì lược đồ thật
+     * sự chưa được dựng. Thử lại vài lần là cách duy nhất phân biệt được hai chuyện: vướng nhất
+     * thời thì lần sau qua, còn hỏng thật thì lần nào cũng hỏng và vẫn báo đỏ như cũ.
+     */
+    private static void rebuildWithRetry() throws Exception {
+        for (int lan = 1; ; lan++) {
+            try {
+                rebuild();
+                return;
+            } catch (Exception e) {
+                if (lan >= LAN_THU_TOI_DA || !laTranhChapKhoa(e)) {
+                    throw e;
+                }
+                // Nhường chỗ cho bên kia chạy xong rồi nhả khoá.
+                Thread.sleep(1000L * lan);
+            }
+        }
+    }
+
+    /** Lần theo cả chuỗi nguyên nhân: lỗi SQL gốc đã bị bọc lại vài lớp trước khi tới đây. */
+    private static boolean laTranhChapKhoa(Throwable t) {
+        for (Throwable cause = t; cause != null; cause = cause.getCause()) {
+            if (cause instanceof SQLException sql
+                    && (sql.getErrorCode() == DEADLOCK_VICTIM || sql.getErrorCode() == LOCK_TIMEOUT)) {
+                return true;
+            }
+        }
+        return false;
+    }
 
     private static void rebuild() throws Exception {
         Properties p = loadTestProperties();

@@ -113,9 +113,22 @@ public abstract class IntegrationTestBase {
         return id;
     }
 
+    /** Một món KHÔNG bán được — dữ liệu mẫu cố ý giữ sẵn cả món hết hàng lẫn món đã ngừng bán. */
+    protected static int unavailableProductId() {
+        Integer id = scalar(Integer.class,
+                "SELECT TOP 1 product_id FROM dbo.Product " +
+                "WHERE status <> 'ACTIVE' OR is_available = 0 ORDER BY product_id");
+        if (id == null) {
+            throw new IllegalStateException("Du lieu mau khong con mon nao ngung ban — "
+                    + "cac bai test ve canh bao het hang mat cho de kiem chung");
+        }
+        return id;
+    }
+
     protected static final String CUSTOMER_1 = "customer1@gmail.com";
     protected static final String CUSTOMER_2 = "customer2@gmail.com";
     protected static final String CASHIER_1 = "cashier1@fastfood.vn";
+    protected static final String CASHIER_2 = "cashier2@fastfood.vn";
     protected static final String KITCHEN_1 = "kitchen1@fastfood.vn";
     protected static final String KITCHEN_2 = "kitchen2@fastfood.vn";
     protected static final String ADMIN = "admin@fastfood.vn";

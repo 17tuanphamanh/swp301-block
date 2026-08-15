@@ -1,15 +1,18 @@
 package com.fastfood.controller.staff;
 
+import com.fastfood.common.constant.BusinessRule;
 import com.fastfood.common.constant.PaymentMethod;
 import com.fastfood.common.exception.AppException;
 import com.fastfood.common.util.WebUtil;
 import com.fastfood.controller.BaseServlet;
+import com.fastfood.model.dto.PosCartLine;
 import com.fastfood.model.dto.PosLine;
 import com.fastfood.model.entity.Order;
-import com.fastfood.model.entity.Product;
 import com.fastfood.model.entity.User;
-import com.fastfood.service.MenuService;
-import com.fastfood.service.OrderService;
+import com.fastfood.service.shared.MenuService;
+import com.fastfood.service.staff.PosHoldService;
+import com.fastfood.service.staff.ShiftService;
+import com.fastfood.service.staff.StaffOrderService;
 
 import javax.servlet.ServletException;
 import javax.servlet.annotation.WebServlet;
@@ -38,38 +41,48 @@ public class PosServlet extends BaseServlet {
     private static final String CART_KEY = "posCart";
 
     private final MenuService menuService = new MenuService();
-    private final OrderService orderService = new OrderService();
+    private final StaffOrderService orderService = new StaffOrderService();
+    private final PosHoldService holdService = new PosHoldService();
+    private final ShiftService shiftService = new ShiftService();
 
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp)
             throws ServletException, IOException {
+        User cashier = requireUser(req);
         Integer categoryId = WebUtil.getInteger(req, "categoryId");
         String keyword = WebUtil.getString(req, "keyword");
 
-        List<Product> products = menuService.browse(categoryId, keyword);
         Map<Integer, Integer> cart = cart(req);
-
-        // Ghép số lượng đã chọn với thông tin món để hiển thị phiếu tạm
-        List<Product> all = menuService.browse(null, null);
-        List<Object[]> lines = new ArrayList<>();
+        List<PosCartLine> lines = orderService.describeCart(cart);
         BigDecimal total = BigDecimal.ZERO;
-        for (Map.Entry<Integer, Integer> entry : cart.entrySet()) {
-            for (Product p : all) {
-                if (p.getProductId() == entry.getKey()) {
-                    BigDecimal lineTotal = p.getPrice().multiply(BigDecimal.valueOf(entry.getValue()));
-                    lines.add(new Object[]{p, entry.getValue(), lineTotal});
-                    total = total.add(lineTotal);
-                    break;
-                }
-            }
+        boolean anyUnavailable = false;
+        for (PosCartLine line : lines) {
+            total = total.add(line.getLineTotal());
+            anyUnavailable |= !line.isOrderable();
         }
 
-        req.setAttribute("products", products);
+        req.setAttribute("products", menuService.browse(categoryId, keyword));
         req.setAttribute("categories", menuService.activeCategories());
         req.setAttribute("selectedCategory", categoryId);
         req.setAttribute("keyword", keyword);
         req.setAttribute("posLines", lines);
         req.setAttribute("posTotal", total);
+        // Còn một dòng không bán được thì cả phiếu không thu tiền được — createPosOrder sẽ từ
+        // chối. Nói ra ở đây để thu ngân sửa trước, thay vì biết khi khách đã đưa tiền.
+        req.setAttribute("posUnavailable", anyUnavailable);
+
+        // Ca làm việc hiện ngay trên màn bán hàng, không chỉ ở trang lịch sử: đơn bán khi chưa
+        // mở ca vẫn ghi nhận bình thường nhưng nằm ngoài bảng đối soát tiền cuối ca — xem
+        // ShiftService. Cảnh báo phải nằm đúng chỗ người ta bán hàng thì mới có tác dụng.
+        req.setAttribute("currentShift", shiftService.currentShift(cashier.getUserId()));
+
+        // Phiếu treo của chính người đang đăng nhập. Không ai xem phiếu của người khác, nên
+        // đây vừa là điều kiện lọc vừa là chốt chặn quyền.
+        req.setAttribute("holds", holdService.myHolds(cashier.getUserId()));
+        int editId = WebUtil.getInt(req, "editHold", 0);
+        if (editId > 0) {
+            req.setAttribute("editingHold", holdService.findOwn(editId, cashier.getUserId()));
+        }
         forward(req, resp, "staff/pos.jsp");
     }
 
@@ -80,9 +93,17 @@ public class PosServlet extends BaseServlet {
         Map<Integer, Integer> cart = cart(req);
 
         switch (action == null ? "" : action) {
+            /* Hai nhánh dưới đây chặn số lượng ngay tại chỗ thay vì để dồn tới lúc thu tiền.
+               Ngưỡng là cùng con số mà createPosOrder dùng — quá nó thì cả phiếu bị từ chối,
+               và biết điều đó khi khách đã đứng chờ ở quầy là muộn. */
             case "add": {
                 int productId = WebUtil.getInt(req, "productId", 0);
-                cart.merge(productId, 1, Integer::sum);
+                int current = cart.getOrDefault(productId, 0);
+                if (current >= BusinessRule.MAX_QUANTITY_PER_LINE) {
+                    WebUtil.flashError(req, tooManyMessage());
+                } else {
+                    cart.put(productId, current + 1);
+                }
                 redirect(req, resp, "/staff/pos");
                 return;
             }
@@ -91,6 +112,8 @@ public class PosServlet extends BaseServlet {
                 int quantity = WebUtil.getInt(req, "quantity", 0);
                 if (quantity <= 0) {
                     cart.remove(productId);
+                } else if (quantity > BusinessRule.MAX_QUANTITY_PER_LINE) {
+                    WebUtil.flashError(req, tooManyMessage());
                 } else {
                     cart.put(productId, quantity);
                 }
@@ -141,9 +164,63 @@ public class PosServlet extends BaseServlet {
                 }
                 return;
             }
+            case "hold": {
+                // Chụp lại giỏ trước khi gọi dịch vụ: treo xong mới xoá giỏ, và chỉ xoá khi
+                // thật sự đã ghi được xuống. Xoá trước rồi mới ghi thì một lỗi nhập liệu —
+                // ví dụ để trống tên phiếu — sẽ làm mất trắng giỏ đang dở.
+                Map<Integer, Integer> chup = new LinkedHashMap<>(cart);
+                handle(req, resp, () -> {
+                    holdService.hold(cashier.getUserId(), WebUtil.getString(req, "label"),
+                            WebUtil.getString(req, "note"), chup);
+                    cart.clear();
+                }, "Đã treo phiếu. Giỏ đã trống, mời khách tiếp theo.", "/staff/pos");
+                return;
+            }
+            case "resume": {
+                /* Không nạp chồng lên giỏ đang có món. Trộn hai giỏ của hai khách khác nhau là
+                   lỗi có hậu quả bằng tiền, và nó xảy ra lặng lẽ: thu ngân bấm lấy phiếu ra rồi
+                   thu tiền, không ai đọc lại từng dòng. */
+                if (!cart.isEmpty()) {
+                    WebUtil.flashError(req, "Giỏ đang có món của khách khác. "
+                            + "Hãy tính tiền, treo lại, hoặc xoá giỏ trước khi lấy phiếu ra.");
+                    redirect(req, resp, "/staff/pos");
+                    return;
+                }
+                int holdId = WebUtil.getInt(req, "holdId", 0);
+                handle(req, resp, () -> cart.putAll(holdService.resume(holdId, cashier.getUserId())),
+                        "Đã lấy phiếu ra. Kiểm lại món rồi thu tiền.", "/staff/pos");
+                return;
+            }
+            case "holdRename": {
+                int holdId = WebUtil.getInt(req, "holdId", 0);
+                handle(req, resp, () -> holdService.rename(holdId, cashier.getUserId(),
+                                WebUtil.getString(req, "label"), WebUtil.getString(req, "note")),
+                        "Đã cập nhật phiếu treo.", "/staff/pos");
+                return;
+            }
+            case "holdSetQty": {
+                int holdId = WebUtil.getInt(req, "holdId", 0);
+                int productId = WebUtil.getInt(req, "productId", 0);
+                int quantity = WebUtil.getInt(req, "quantity", 0);
+                handle(req, resp, () -> holdService.setQuantity(holdId, cashier.getUserId(),
+                                productId, quantity),
+                        null, "/staff/pos");
+                return;
+            }
+            case "holdDiscard": {
+                int holdId = WebUtil.getInt(req, "holdId", 0);
+                handle(req, resp, () -> holdService.discard(holdId, cashier.getUserId()),
+                        "Đã bỏ phiếu treo.", "/staff/pos");
+                return;
+            }
             default:
                 redirect(req, resp, "/staff/pos");
         }
+    }
+
+    private String tooManyMessage() {
+        return "Mỗi món chỉ bán được tối đa " + BusinessRule.MAX_QUANTITY_PER_LINE
+                + " phần trên một đơn. Khách mua nhiều hơn thì tách thành đơn thứ hai.";
     }
 
     @SuppressWarnings("unchecked")

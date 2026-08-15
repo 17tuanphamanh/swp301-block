@@ -192,6 +192,54 @@ public final class ViewFunctions {
         }
     }
 
+    /**
+     * Tiêu đề của một tin trong hộp thông báo của khách.
+     * <p>
+     * Nội dung tin đã nói đủ chuyện gì xảy ra, nhưng nói bằng một đoạn văn. Tiêu đề ngắn ở đây
+     * để khách lướt qua danh sách là thấy ngay dòng nào đáng đọc — nhất là dòng báo hoàn tiền
+     * nằm lẫn giữa mấy tin xác nhận đơn.
+     */
+    public static String notificationEvent(String event) {
+        if (event == null) {
+            return "";
+        }
+        switch (event) {
+            case "ORDER_CONFIRMED": return "Đơn đã được xác nhận";
+            case "ORDER_READY":     return "Món đã sẵn sàng";
+            case "ORDER_CANCELLED": return "Đơn đã bị huỷ";
+            case "ORDER_EXPIRED":   return "Đơn hết hiệu lực";
+            default:                return event;
+        }
+    }
+
+    /** Biểu tượng đi kèm tiêu đề tin, để phân biệt tin vui và tin xấu ngay từ xa. */
+    public static String notificationIcon(String event) {
+        if (event == null) {
+            return "•";
+        }
+        switch (event) {
+            case "ORDER_CONFIRMED": return "✅";
+            case "ORDER_READY":     return "🔔";
+            case "ORDER_CANCELLED": return "🚫";
+            case "ORDER_EXPIRED":   return "⌛";
+            default:                return "•";
+        }
+    }
+
+    /** Lớp màu của thẻ loại tin, đi kèm {@link #notificationEvent(String)}. */
+    public static String notificationEventClass(String event) {
+        if (event == null) {
+            return "tag";
+        }
+        switch (event) {
+            case "ORDER_CONFIRMED": return "tag tag-info";
+            case "ORDER_READY":     return "tag tag-green";
+            case "ORDER_CANCELLED":
+            case "ORDER_EXPIRED":   return "tag tag-red";
+            default:                return "tag";
+        }
+    }
+
     /** Dịch mã thao tác trong nhật ký sang câu tiếng Việt dễ đọc. */
     public static String auditAction(String action) {
         if (action == null) {

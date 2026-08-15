@@ -4,7 +4,7 @@ import com.fastfood.common.exception.AppException;
 import com.fastfood.common.util.WebUtil;
 import com.fastfood.controller.BaseServlet;
 import com.fastfood.model.entity.User;
-import com.fastfood.service.AuthService;
+import com.fastfood.service.auth.AuthService;
 
 import javax.servlet.ServletException;
 import javax.servlet.annotation.WebServlet;
@@ -34,9 +34,13 @@ public class RegisterServlet extends BaseServlet {
                     WebUtil.getString(req, "phone"),
                     req.getParameter("password"),
                     req.getParameter("confirmPassword"));
-            req.getSession(true).setAttribute(WebUtil.SESSION_USER, user);
+
+            // Đăng ký xong là đã đăng nhập, nên phải cấp phiên mới y hệt lúc đăng nhập. Dùng lại
+            // phiên cũ ở đây thì việc chiếm phiên đã biết trước chỉ cần chuyển sang cửa này là
+            // qua được — hàng rào dựng ở /login mà bỏ trống ở /register thì không phải là hàng rào.
+            String target = WebUtil.startAuthenticatedSession(req, user, "/menu");
             WebUtil.flashSuccess(req, "Đăng ký thành công. Chào mừng " + user.getFullName() + "!");
-            redirect(req, resp, "/menu");
+            redirect(req, resp, target);
         } catch (AppException e) {
             req.setAttribute("errorMessage", e.getMessage());
             req.setAttribute("fullName", WebUtil.getString(req, "fullName"));

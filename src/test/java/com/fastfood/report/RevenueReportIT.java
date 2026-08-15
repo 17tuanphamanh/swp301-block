@@ -2,7 +2,7 @@ package com.fastfood.report;
 
 import com.fastfood.model.dto.DashboardKpi;
 import com.fastfood.model.dto.ReportRow;
-import com.fastfood.service.ReportService;
+import com.fastfood.service.admin.ReportService;
 import com.fastfood.testsupport.IntegrationTestBase;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;

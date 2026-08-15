@@ -2,6 +2,7 @@ package com.fastfood.filter;
 
 import com.fastfood.common.util.WebUtil;
 import com.fastfood.model.entity.User;
+import com.fastfood.service.auth.SessionGuard;
 
 import javax.servlet.*;
 import javax.servlet.http.HttpServletRequest;
@@ -23,6 +24,9 @@ public class AuthenticationFilter implements Filter {
     /** Trang ai cũng xem được: thực đơn, đăng nhập, đăng ký, tài nguyên tĩnh. */
     private static final Set<String> PUBLIC_PATHS = Set.of(
             "/", "/index.jsp", "/menu", "/product/detail", "/login", "/logout", "/register",
+            // Quên mật khẩu: chỉ người đang KHÔNG vào được tài khoản mới cần tới, nên bắt buộc
+            // phải mở cho người chưa đăng nhập.
+            "/forgot-password", "/reset-password",
             "/payment/callback"      // cổng thanh toán gọi vào, không có phiên đăng nhập
     );
 
@@ -35,15 +39,20 @@ public class AuthenticationFilter implements Filter {
      */
     private static final Set<String> PASSWORD_CHANGE_PATHS = Set.of("/profile", "/logout");
 
+    private final SessionGuard sessionGuard = new SessionGuard();
+
     @Override
     public void doFilter(ServletRequest request, ServletResponse response, FilterChain chain)
             throws IOException, ServletException {
         HttpServletRequest req = (HttpServletRequest) request;
         HttpServletResponse resp = (HttpServletResponse) response;
 
-        String path = req.getRequestURI().substring(req.getContextPath().length());
+        String path = RequestPath.of(req);
 
-        if (isPublic(path)) {
+        if (isPublicPath(path)) {
+            // Trang công khai vẫn phải đồng bộ: thanh điều hướng trên /menu đọc vai trò từ
+            // phiên, và một tài khoản vừa bị khoá không được tiếp tục hiện ra như đang đăng nhập.
+            refreshIfLoggedIn(req);
             chain.doFilter(request, response);
             return;
         }
@@ -52,7 +61,18 @@ public class AuthenticationFilter implements Filter {
         if (user == null) {
             // Nhớ trang khách định vào để đăng nhập xong quay lại đúng chỗ đó
             String target = req.getQueryString() == null ? path : path + "?" + req.getQueryString();
-            req.getSession().setAttribute("redirectAfterLogin", target);
+            req.getSession().setAttribute(WebUtil.REDIRECT_AFTER_LOGIN, target);
+            resp.sendRedirect(req.getContextPath() + "/login");
+            return;
+        }
+
+        // Quyền trong phiên là bản chụp tại thời điểm đăng nhập, mà phiên sống tới 60 phút.
+        // Không soi lại thì việc khoá một tài khoản chỉ có hiệu lực sau khi người đó tự đăng
+        // xuất — đúng điều họ sẽ không làm. Xem SessionGuard để biết vì sao không soi mọi lần.
+        user = sessionGuard.refresh(req);
+        if (user == null) {
+            WebUtil.flashError(req, "Tài khoản của bạn vừa bị khoá hoặc không còn hiệu lực. "
+                    + "Vui lòng đăng nhập lại.");
             resp.sendRedirect(req.getContextPath() + "/login");
             return;
         }
@@ -69,7 +89,30 @@ public class AuthenticationFilter implements Filter {
         chain.doFilter(request, response);
     }
 
-    private boolean isPublic(String path) {
+    /**
+     * Soi lại tài khoản trên trang công khai, nhưng chỉ khi đang có người đăng nhập.
+     * Khách vãng lai xem thực đơn thì không đụng tới cơ sở dữ liệu — đó là trang được mở
+     * nhiều nhất và phần lớn lượt mở không có ai đăng nhập cả.
+     */
+    private void refreshIfLoggedIn(HttpServletRequest req) {
+        if (WebUtil.currentUser(req) != null) {
+            // Huỷ phiên là việc của SessionGuard; ở đây chỉ cần không đi tiếp bằng bản cũ.
+            sessionGuard.refresh(req);
+        }
+    }
+
+    /**
+     * Địa chỉ này có mở cho người chưa đăng nhập không.
+     * <p>
+     * Công khai và tĩnh để kiểm chứng được từ bài test: danh sách trang mở là một <b>quyết định
+     * về quyền</b>, và thêm nhầm một dòng vào đó thì không có gì hỏng ầm ĩ — màn hình vẫn chạy,
+     * chỉ là ai cũng vào được. Loại lỗi im lặng như vậy phải có bài test canh, mà bài test thì
+     * không đọc được một phương thức riêng tư.
+     */
+    public static boolean isPublicPath(String path) {
+        if (path == null) {
+            return false;
+        }
         if (PUBLIC_PATHS.contains(path)) {
             return true;
         }

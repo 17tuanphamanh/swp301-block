@@ -23,9 +23,27 @@
                   ${cat.active ? 'Đang hiện' : 'Đã ẩn'}
                 </span>
               </td>
-              <td class="center"><a class="btn btn-sm" href="${ctx}/admin/categories?edit=${cat.categoryId}">Sửa</a></td>
+              <td class="center">
+                <a class="btn btn-sm" href="${ctx}/admin/categories?edit=${cat.categoryId}">Sửa</a>
+                <%-- Ẩn một nhóm đang có món là thao tác nhìn thấy hậu quả ngay trên thực đơn của
+                     khách, nên phải hỏi lại và nói rõ bao nhiêu món sẽ biến mất. Nhóm rỗng thì
+                     không hỏi: hỏi cho mọi thứ là cách nhanh nhất khiến người dùng bấm Đồng ý
+                     theo phản xạ, kể cả đúng lúc lẽ ra phải dừng lại. --%>
+                <form method="post" action="${ctx}/admin/categories" class="inline-form"
+                      <c:if test="${cat.active and cat.productCount > 0}">data-confirm="Ẩn nhóm này? ${cat.productCount} món trong nhóm sẽ không còn hiện trên thực đơn."</c:if>>
+                  <input type="hidden" name="_csrf" value="${csrfToken}">
+                  <input type="hidden" name="action" value="${cat.active ? 'retire' : 'restore'}">
+                  <input type="hidden" name="categoryId" value="${cat.categoryId}">
+                  <button type="submit" class="btn btn-sm ${cat.active ? 'btn-danger' : ''}">
+                    ${cat.active ? 'Ẩn nhóm' : 'Hiện lại'}
+                  </button>
+                </form>
+              </td>
             </tr>
           </c:forEach>
+          <c:if test="${empty categories}">
+            <tr><td colspan="5" class="center muted cell-empty">Chưa có nhóm món nào. Thêm nhóm đầu tiên ở khung bên cạnh.</td></tr>
+          </c:if>
         </tbody>
       </table>
     </div>
@@ -33,6 +51,7 @@
     <div class="card">
       <h2>${empty editing ? 'Thêm nhóm món' : 'Sửa nhóm món'}</h2>
       <form method="post" action="${ctx}/admin/categories">
+        <input type="hidden" name="_csrf" value="${csrfToken}">
         <input type="hidden" name="categoryId" value="${editing.categoryId}">
         <div class="field">
           <label for="name">Tên nhóm</label>
@@ -42,11 +61,9 @@
           <label for="displayOrder">Thứ tự hiển thị</label>
           <input type="number" id="displayOrder" name="displayOrder" value="${empty editing ? 0 : editing.displayOrder}">
         </div>
-        <div class="field check">
-          <input type="checkbox" id="active" name="active" value="true"
-                 ${empty editing or editing.active ? 'checked' : ''}>
-          <label for="active">Hiện trên thực đơn</label>
-        </div>
+        <%-- Không có ô tick trạng thái ở đây: ẩn/hiện nhóm là nút riêng trên từng dòng của
+             bảng bên trái. Để chung form thì mỗi lần sửa tên nhóm lại ghi đè trạng thái, và
+             một lần quên tick là cả nhóm rời thực đơn mà không ai chủ ý làm vậy. --%>
         <button type="submit" class="btn btn-primary btn-block">
           ${empty editing ? 'Thêm nhóm' : 'Lưu thay đổi'}
         </button>

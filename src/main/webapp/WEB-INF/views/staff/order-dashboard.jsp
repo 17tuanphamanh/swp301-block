@@ -147,6 +147,56 @@
                   <a class="btn touch btn-primary" href="${ctx}/staff/order/detail?orderId=${o.orderId}">Mở</a>
                 </td>
               </tr>
+              <%-- Ghi chú điều phối nằm ngay dưới dòng đơn thay vì một cột riêng: nội dung là
+                   câu văn, nhét vào cột sẽ ép cả bảng hẹp lại. Hàng này chỉ hiện khi có ghi chú
+                   hoặc khi đang sửa, nên bảng vẫn gọn với đơn không có gì đặc biệt. --%>
+              <c:set var="notes" value="${notesByOrder[o.orderId]}" />
+              <tr class="note-row">
+                <td colspan="8">
+                  <c:forEach var="n" items="${notes}">
+                    <div class="small">
+                      <c:choose>
+                        <c:when test="${not empty editingNote and editingNote.orderNoteId eq n.orderNoteId}">
+                          <form method="post" action="${ctx}/staff/orders" class="inline-form">
+                            <input type="hidden" name="_csrf" value="${csrfToken}">
+                            <input type="hidden" name="action" value="noteUpdate">
+                            <input type="hidden" name="noteId" value="${n.orderNoteId}">
+                            <input type="hidden" name="tab" value="${tab}">
+                            <input type="text" name="content" maxlength="500" required
+                                   value="${fn:escapeXml(n.content)}" class="input-sm">
+                            <button type="submit" class="btn btn-sm btn-primary">Lưu</button>
+                            <a class="btn btn-sm" href="${ctx}/staff/orders?tab=${tab}">Huỷ</a>
+                          </form>
+                        </c:when>
+                        <c:otherwise>
+                          <c:out value="${n.content}"/>
+                          <span class="muted">— <c:out value="${n.authorName}"/>
+                            <c:if test="${n.edited}"> (đã sửa)</c:if></span>
+                          <c:if test="${n.authorId eq me.userId}">
+                            <a class="btn btn-sm" href="${ctx}/staff/orders?tab=${tab}&amp;editNote=${n.orderNoteId}">Sửa</a>
+                            <form method="post" action="${ctx}/staff/orders" class="inline-form">
+                              <input type="hidden" name="_csrf" value="${csrfToken}">
+                              <input type="hidden" name="action" value="noteDelete">
+                              <input type="hidden" name="noteId" value="${n.orderNoteId}">
+                              <input type="hidden" name="tab" value="${tab}">
+                              <button type="submit" class="btn btn-sm btn-danger">Xoá</button>
+                            </form>
+                          </c:if>
+                        </c:otherwise>
+                      </c:choose>
+                    </div>
+                  </c:forEach>
+                  <form method="post" action="${ctx}/staff/orders" class="inline-form">
+                    <input type="hidden" name="_csrf" value="${csrfToken}">
+                    <input type="hidden" name="action" value="noteAdd">
+                    <input type="hidden" name="orderId" value="${o.orderId}">
+                    <input type="hidden" name="tab" value="${tab}">
+                    <input type="text" name="content" maxlength="500" required
+                           placeholder="Ghi chú cho đơn này" class="input-sm">
+                    <button type="submit" class="btn btn-sm">Thêm ghi chú</button>
+                  </form>
+                </td>
+              </tr>
             </c:forEach>
           </tbody>
         </table>

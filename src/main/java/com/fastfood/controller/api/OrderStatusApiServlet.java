@@ -5,7 +5,7 @@ import com.fastfood.common.util.ViewFunctions;
 import com.fastfood.common.util.WebUtil;
 import com.fastfood.model.entity.Order;
 import com.fastfood.model.entity.User;
-import com.fastfood.service.OrderService;
+import com.fastfood.service.customer.CustomerOrderService;
 import com.google.gson.JsonObject;
 
 import javax.servlet.annotation.WebServlet;
@@ -21,7 +21,7 @@ import java.io.IOException;
 @WebServlet("/api/order/status")
 public class OrderStatusApiServlet extends HttpServlet {
 
-    private final OrderService orderService = new OrderService();
+    private final CustomerOrderService orderService = new CustomerOrderService();
 
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp) throws IOException {

@@ -22,6 +22,14 @@ public final class BusinessRule {
     /** Độ dài Pickup Code sinh cho Online Order (UC-15). */
     public static final int PICKUP_CODE_LENGTH = 6;
 
+    /**
+     * Số lượng tối đa cho một dòng món, áp dụng cho cả giỏ hàng của khách và phiếu tạm ở quầy.
+     * <p>
+     * Đặt ở đây chứ không ở một trong hai tầng service vì cả hai đường đặt hàng phải chặn
+     * cùng một con số — để riêng thì sửa một bên là hai đường lệch nhau mà không ai biết.
+     */
+    public static final int MAX_QUANTITY_PER_LINE = 50;
+
     /** NFR-03: release phải xảy ra trong vòng 60 giây kể từ kitchen_release_at. */
     public static final int RELEASE_ACCURACY_SECONDS = 60;
 

@@ -5,8 +5,11 @@ import com.fastfood.common.exception.AppException;
 import com.fastfood.common.util.WebUtil;
 import com.fastfood.controller.BaseServlet;
 import com.fastfood.model.entity.Order;
-import com.fastfood.service.KitchenService;
-import com.fastfood.service.OrderService;
+import com.fastfood.model.entity.OrderNote;
+import com.fastfood.model.entity.User;
+import com.fastfood.service.kitchen.KitchenService;
+import com.fastfood.service.staff.OrderNoteService;
+import com.fastfood.service.staff.StaffOrderService;
 
 import javax.servlet.ServletException;
 import javax.servlet.annotation.WebServlet;
@@ -16,13 +19,14 @@ import java.io.IOException;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.Collectors;
 
 /**
  * Màn hình điều phối của thu ngân, chia bốn tab: đơn tại quầy đang xử lý, đơn đặt trước
  * (đang chờ tới giờ hoặc đang làm), đơn chờ khách tới lấy, và đơn khách đã quá hẹn.
  * <p>
  * Bốn tab cộng lại phủ kín mọi đơn chưa kết thúc — xem
- * {@link com.fastfood.dao.OrderDAO#findForDashboard}.
+ * {@link com.fastfood.dao.shared.OrderDAO#findForDashboard}.
  * <p>
  * Màn hình này cũng là chỗ tra mã nhận hàng khi khách tới quầy. Tra xong vẫn phải mở đơn ra
  * mới giao được món, để nhân viên có cơ hội đối chiếu món trước khi đưa cho khách.
@@ -32,7 +36,8 @@ public class OrderDashboardServlet extends BaseServlet {
 
     private static final List<String> TABS = List.of("POS", "SCHEDULED", "READY", "OVERDUE");
 
-    private final OrderService orderService = new OrderService();
+    private final StaffOrderService orderService = new StaffOrderService();
+    private final OrderNoteService noteService = new OrderNoteService();
     private final KitchenService kitchenService = new KitchenService();
 
     @Override
@@ -62,6 +67,22 @@ public class OrderDashboardServlet extends BaseServlet {
         req.setAttribute("openIssueCount", kitchenService.countOpenIssues());
         req.setAttribute("awaitingCounterCount", orderService.countAwaitingCounter());
 
+        // Ghi chú của mọi đơn đang hiện, lấy trong MỘT lượt truy vấn. Hỏi từng đơn một sẽ
+        // thành hàng chục lượt cho một lần mở trang.
+        Map<Integer, List<OrderNote>> notesByOrder = noteService.notesOfOrders(
+                current.stream().map(Order::getOrderId).collect(Collectors.toList()));
+        req.setAttribute("notesByOrder", notesByOrder);
+
+        // Ghi chú đang sửa tìm ngay trong tập vừa nạp, không hỏi lại cơ sở dữ liệu: nó chắc
+        // chắn thuộc một trong những đơn đang hiện, vì nút Sửa chỉ có ở đó.
+        int editId = WebUtil.getInt(req, "editNote", 0);
+        if (editId > 0) {
+            req.setAttribute("editingNote", notesByOrder.values().stream()
+                    .flatMap(List::stream)
+                    .filter(n -> n.getOrderNoteId() == editId)
+                    .findFirst().orElse(null));
+        }
+
         lookupPickupCode(req);
         forward(req, resp, "staff/order-dashboard.jsp");
     }
@@ -90,7 +111,7 @@ public class OrderDashboardServlet extends BaseServlet {
             // thái là chưa đủ — nhân viên đang vội sẽ đọc lướt qua, rồi bấm giao món và nhận một
             // thông báo lỗi mà lúc đó khách đã đứng chờ sẵn ở quầy.
             //
-            // Đây chỉ là cảnh báo sớm cho người dùng. Chốt chặn thật nằm ở OrderService.handoff,
+            // Đây chỉ là cảnh báo sớm cho người dùng. Chốt chặn thật nằm ở StaffOrderService.handoff,
             // nơi cả ba điều kiện được kiểm lại một lần nữa.
             if (!OrderStatus.READY.name().equals(found.getOrderStatus())) {
                 req.setAttribute("lookupWarning", "Đơn chưa sẵn sàng để giao. Trạng thái hiện tại: "
@@ -101,6 +122,37 @@ public class OrderDashboardServlet extends BaseServlet {
             }
         } catch (AppException e) {
             req.setAttribute("lookupError", e.getMessage());
+        }
+    }
+
+    /**
+     * Ba thao tác trên ghi chú điều phối.
+     * <p>
+     * Quay về đúng tab đang mở, nếu không thì ghi chú trên tab "Sẵn sàng giao" xong lại bị đẩy
+     * về tab mặc định và người dùng tưởng thao tác không ăn.
+     */
+    @Override
+    protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws IOException {
+        User user = requireUser(req);
+        int noteId = WebUtil.getInt(req, "noteId", 0);
+        String content = WebUtil.getString(req, "content");
+        String tab = WebUtil.getString(req, "tab");
+        String back = "/staff/orders" + (tab == null || tab.isBlank() ? "" : "?tab=" + tab);
+
+        switch (WebUtil.getString(req, "action") == null ? "" : WebUtil.getString(req, "action")) {
+            case "noteUpdate":
+                handle(req, resp, () -> noteService.update(noteId, user.getUserId(), content),
+                        "Đã sửa ghi chú.", back);
+                return;
+            case "noteDelete":
+                handle(req, resp, () -> noteService.delete(noteId, user.getUserId()),
+                        "Đã xoá ghi chú.", back);
+                return;
+            case "noteAdd":
+            default:
+                handle(req, resp, () -> noteService.add(WebUtil.getInt(req, "orderId", 0),
+                                user.getUserId(), content),
+                        "Đã thêm ghi chú.", back);
         }
     }
 }

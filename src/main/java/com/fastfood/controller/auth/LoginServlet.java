@@ -4,13 +4,12 @@ import com.fastfood.common.exception.AppException;
 import com.fastfood.common.util.WebUtil;
 import com.fastfood.controller.BaseServlet;
 import com.fastfood.model.entity.User;
-import com.fastfood.service.AuthService;
+import com.fastfood.service.auth.AuthService;
 
 import javax.servlet.ServletException;
 import javax.servlet.annotation.WebServlet;
 import javax.servlet.http.HttpServletRequest;
 import javax.servlet.http.HttpServletResponse;
-import javax.servlet.http.HttpSession;
 import java.io.IOException;
 
 /** Đăng nhập cho cả bốn vai trò. */
@@ -34,19 +33,10 @@ public class LoginServlet extends BaseServlet {
             throws ServletException, IOException {
         String email = WebUtil.getString(req, "email");
         try {
-            User user = authService.login(email, req.getParameter("password"));
+            User user = authService.login(email, req.getParameter("password"), WebUtil.clientIp(req));
 
             // Cấp phiên mới sau khi xác thực để tránh bị chiếm phiên đã biết trước
-            HttpSession oldSession = req.getSession(false);
-            String redirectAfterLogin = null;
-            if (oldSession != null) {
-                redirectAfterLogin = (String) oldSession.getAttribute("redirectAfterLogin");
-                oldSession.invalidate();
-            }
-            HttpSession session = req.getSession(true);
-            session.setAttribute(WebUtil.SESSION_USER, user);
-
-            redirect(req, resp, WebUtil.safeRedirect(redirectAfterLogin, "/"));
+            redirect(req, resp, WebUtil.startAuthenticatedSession(req, user, "/"));
         } catch (AppException e) {
             req.setAttribute("errorMessage", e.getMessage());
             req.setAttribute("email", email);

@@ -13,6 +13,7 @@ public class Notification {
     private String content;
     private String status;
     private LocalDateTime sentAt;
+    private LocalDateTime readAt;
 
     public int getNotificationId() { return notificationId; }
     public void setNotificationId(int notificationId) { this.notificationId = notificationId; }
@@ -37,4 +38,19 @@ public class Notification {
 
     public LocalDateTime getSentAt() { return sentAt; }
     public void setSentAt(LocalDateTime sentAt) { this.sentAt = sentAt; }
+
+    public LocalDateTime getReadAt() { return readAt; }
+    public void setReadAt(LocalDateTime readAt) { this.readAt = readAt; }
+
+    /** Tin mới thì hiện đậm và được đếm vào huy hiệu trên thanh điều hướng. */
+    public boolean isUnread() { return readAt == null; }
+
+    /**
+     * Gửi hỏng thì nói ra ngay trên dòng tin.
+     * <p>
+     * Kênh gửi ngoài ứng dụng có thể hỏng — địa chỉ thư sai, dịch vụ gửi chết. Không phân biệt
+     * thì khách đọc được tin ở đây và đinh ninh mình cũng đã nhận được thư, rồi rời màn hình mà
+     * không biết là từ giờ tin chỉ tới được đúng một nơi này.
+     */
+    public boolean isFailed() { return "FAILED".equals(status); }
 }

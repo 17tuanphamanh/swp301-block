@@ -29,7 +29,15 @@ public class CartView {
         return items.stream().filter(CartItem::isOrderable).mapToInt(CartItem::getQuantity).sum();
     }
 
-    public boolean isEmpty() { return items.isEmpty(); }
+    /**
+     * Giỏ không có món nào.
+     * <p>
+     * Tên là {@code isEmptyCart} chứ không {@code isEmpty}: thuộc tính EL suy ra từ
+     * {@code isEmpty} là {@code empty}, mà {@code ${cart.empty}} không phân tích cú pháp được
+     * vì {@code empty} là toán tử của chính EL — trang sẽ đổ lỗi lúc chạy. Quy tắc này có
+     * {@code BeanNamingTest} canh.
+     */
+    public boolean isEmptyCart() { return items.isEmpty(); }
 
     /** Có món trong giỏ đã hết hàng hoặc ngừng bán — chặn thanh toán cho tới khi khách bỏ ra. */
     public boolean isHasUnavailable() {
@@ -38,6 +46,6 @@ public class CartView {
 
     /** Giỏ có ít nhất một món đặt được, đủ điều kiện sang bước thanh toán. */
     public boolean isCheckoutable() {
-        return !isEmpty() && !isHasUnavailable();
+        return !isEmptyCart() && !isHasUnavailable();
     }
 }

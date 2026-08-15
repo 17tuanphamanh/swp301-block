@@ -162,6 +162,7 @@
                 Nhập mã khách đưa. Mã sai thì hệ thống từ chối giao — tránh đưa nhầm đơn.
               </p>
               <form method="post" action="${ctx}/staff/order/detail">
+                <input type="hidden" name="_csrf" value="${csrfToken}">
                 <input type="hidden" name="orderId" value="${order.orderId}">
                 <input type="hidden" name="action" value="handoff">
                 <div class="field">
@@ -175,6 +176,7 @@
             <c:otherwise>
               <p class="small muted mb">Đơn tại quầy, khách đang đứng đợi — giao trực tiếp.</p>
               <form method="post" action="${ctx}/staff/order/detail">
+                <input type="hidden" name="_csrf" value="${csrfToken}">
                 <input type="hidden" name="orderId" value="${order.orderId}">
                 <input type="hidden" name="action" value="handoff">
                 <button type="submit" class="btn btn-green btn-block touch">Đã giao món</button>
@@ -202,6 +204,7 @@
           </p>
           <form method="post" action="${ctx}/staff/order/detail"
                 data-confirm="Huỷ đơn #${order.orderId} và hoàn tiền cho khách?">
+            <input type="hidden" name="_csrf" value="${csrfToken}">
             <input type="hidden" name="orderId" value="${order.orderId}">
             <input type="hidden" name="action" value="cancel">
             <div class="field">
@@ -226,6 +229,7 @@
           </p>
           <form method="post" action="${ctx}/staff/order/detail"
                 data-confirm="Hoàn tiền cho đơn #${order.orderId}?">
+            <input type="hidden" name="_csrf" value="${csrfToken}">
             <input type="hidden" name="orderId" value="${order.orderId}">
             <input type="hidden" name="action" value="refund">
             <div class="field">

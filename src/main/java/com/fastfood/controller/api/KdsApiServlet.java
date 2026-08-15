@@ -3,7 +3,7 @@ package com.fastfood.controller.api;
 import com.fastfood.common.util.WebUtil;
 import com.fastfood.model.dto.KdsItemView;
 import com.fastfood.model.entity.User;
-import com.fastfood.service.KitchenService;
+import com.fastfood.service.kitchen.KitchenService;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
 
@@ -55,6 +55,9 @@ public class KdsApiServlet extends HttpServlet {
         // Món đã xong mà chưa ra quầy là thứ dễ bị bỏ quên nhất, nên số đếm của nó cũng phải
         // tự cập nhật — người khác đánh dấu xong hộ thì con số ở đây cũng phải nhúc nhích.
         root.addProperty("handoverCount", kitchenService.awaitingHandover(user.getUserId()).size());
+        // Sự cố của cả bếp, không riêng người đang xem: ô chỉ báo trên đầu màn hình bếp đọc
+        // con số này, và một sự cố do người khác báo cũng là việc chưa xong của cả ca.
+        root.addProperty("openIssueCount", kitchenService.countOpenIssues());
 
         resp.setContentType("application/json;charset=UTF-8");
         resp.getWriter().write(root.toString());

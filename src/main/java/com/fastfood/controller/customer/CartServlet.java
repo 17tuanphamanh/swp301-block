@@ -8,8 +8,8 @@ import com.fastfood.controller.BaseServlet;
 import com.fastfood.model.dto.CartView;
 import com.fastfood.model.entity.Order;
 import com.fastfood.model.entity.User;
-import com.fastfood.service.CartService;
-import com.fastfood.service.OrderService;
+import com.fastfood.service.customer.CartService;
+import com.fastfood.service.customer.CustomerOrderService;
 
 import javax.servlet.ServletException;
 import javax.servlet.annotation.WebServlet;
@@ -36,7 +36,7 @@ import java.util.UUID;
 public class CartServlet extends BaseServlet {
 
     private final CartService cartService = new CartService();
-    private final OrderService orderService = new OrderService();
+    private final CustomerOrderService orderService = new CustomerOrderService();
 
     @Override
     protected void doGet(HttpServletRequest req, HttpServletResponse resp)

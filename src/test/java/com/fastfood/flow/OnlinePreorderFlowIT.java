@@ -4,11 +4,12 @@ import com.fastfood.common.exception.BusinessException;
 import com.fastfood.integration.payment.GatewayCallback;
 import com.fastfood.model.entity.Order;
 import com.fastfood.model.entity.OrderItem;
-import com.fastfood.service.CartService;
-import com.fastfood.service.KitchenService;
-import com.fastfood.service.OrderService;
-import com.fastfood.service.PaymentService;
-import com.fastfood.service.ScheduleService;
+import com.fastfood.service.customer.CartService;
+import com.fastfood.service.kitchen.KitchenService;
+import com.fastfood.service.customer.CustomerOrderService;
+import com.fastfood.service.staff.StaffOrderService;
+import com.fastfood.service.shared.PaymentService;
+import com.fastfood.service.shared.ScheduleService;
 import com.fastfood.testsupport.IntegrationTestBase;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
@@ -36,7 +37,8 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class OnlinePreorderFlowIT extends IntegrationTestBase {
 
     private final CartService cartService = new CartService();
-    private final OrderService orderService = new OrderService();
+    private final CustomerOrderService customerOrders = new CustomerOrderService();
+    private final StaffOrderService staffOrders = new StaffOrderService();
     private final PaymentService paymentService = new PaymentService();
     private final ScheduleService scheduleService = new ScheduleService();
     private final KitchenService kitchenService = new KitchenService();
@@ -79,7 +81,7 @@ class OnlinePreorderFlowIT extends IntegrationTestBase {
         assertNotNull(releasedAtOf(order.getOrderId()), "Tới giờ thì bếp phải thấy đơn");
 
         // --- bếp làm món ---
-        OrderItem item = orderService.findById(order.getOrderId()).getItems().get(0);
+        OrderItem item = staffOrders.findById(order.getOrderId()).getItems().get(0);
         kitchenService.claim(item.getOrderItemId(), userId(KITCHEN_1));
         assertEquals("PREPARING", statusOf(order.getOrderId()),
                 "Món đầu tiên được nhận thì cả đơn chuyển sang đang làm — do hệ thống tự suy ra (BR-11)");
@@ -95,13 +97,13 @@ class OnlinePreorderFlowIT extends IntegrationTestBase {
         // Tách làm hai bước là có lý do: mỗi bên tự xác nhận phần việc của mình, nên khi phát
         // hiện thiếu món thì biết ngay món dừng lại ở đâu.
         kitchenService.handOverToCounter(item.getOrderItemId(), userId(KITCHEN_1));
-        orderService.receiveAtCounter(item.getOrderItemId(), userId(CASHIER_1));
+        staffOrders.receiveAtCounter(item.getOrderItemId(), userId(CASHIER_1));
         assertEquals("READY", statusOf(order.getOrderId()),
                 "Cầm món từ bếp không đổi trạng thái đơn — món vẫn chưa ra khỏi cửa hàng");
 
         // --- giao món cho khách ---
         String code = pickupCodeOf(order.getOrderId());
-        orderService.handoff(order.getOrderId(), userId(CASHIER_1), code);
+        staffOrders.handoff(order.getOrderId(), userId(CASHIER_1), code);
 
         assertEquals("COMPLETED", statusOf(order.getOrderId()));
         assertNotNull(scalar(LocalDateTime.class,
@@ -118,7 +120,7 @@ class OnlinePreorderFlowIT extends IntegrationTestBase {
     void duplicateCallbackIsIgnored() {
         int productId = anyOrderableProductId();
         cartService.addProduct(customerId, productId, 1);
-        Order order = orderService.createOnlineOrder(customerId, safePickupTime(), "idem-" + System.nanoTime());
+        Order order = customerOrders.createOnlineOrder(customerId, safePickupTime(), "idem-" + System.nanoTime());
 
         Callback cb = startPayment(order.getOrderId());
 
@@ -139,8 +141,8 @@ class OnlinePreorderFlowIT extends IntegrationTestBase {
         String key = "idem-double-" + System.nanoTime();
         LocalDateTime pickup = safePickupTime();
 
-        Order first = orderService.createOnlineOrder(customerId, pickup, key);
-        Order second = orderService.createOnlineOrder(customerId, pickup, key);
+        Order first = customerOrders.createOnlineOrder(customerId, pickup, key);
+        Order second = customerOrders.createOnlineOrder(customerId, pickup, key);
 
         assertEquals(first.getOrderId(), second.getOrderId(),
                 "Bấm hai lần phải trả về cùng một đơn, không phải hai đơn");
@@ -173,7 +175,7 @@ class OnlinePreorderFlowIT extends IntegrationTestBase {
         Order order = readyOrder();
 
         // Gọi lại việc tổng hợp trạng thái: mọi lần sau đều không được sinh thêm tin nhắn
-        OrderItem item = orderService.findById(order.getOrderId()).getItems().get(0);
+        OrderItem item = staffOrders.findById(order.getOrderId()).getItems().get(0);
         assertThrows(BusinessException.class,
                 () -> kitchenService.markReady(item.getOrderItemId(), userId(KITCHEN_1)),
                 "Món đã xong rồi thì không đánh dấu xong lần nữa được");
@@ -191,7 +193,7 @@ class OnlinePreorderFlowIT extends IntegrationTestBase {
         Order order = readyOrder();
 
         assertThrows(BusinessException.class,
-                () -> orderService.handoff(order.getOrderId(), userId(CASHIER_1), "SAI-MA"));
+                () -> staffOrders.handoff(order.getOrderId(), userId(CASHIER_1), "SAI-MA"));
 
         assertEquals("READY", statusOf(order.getOrderId()), "Đơn phải giữ nguyên trạng thái");
         assertTrue(count("SELECT COUNT(*) FROM dbo.AuditLog WHERE entity_type = 'ORDER' " +
@@ -207,7 +209,7 @@ class OnlinePreorderFlowIT extends IntegrationTestBase {
         String code = pickupCodeOf(order.getOrderId());
 
         BusinessException e = assertThrows(BusinessException.class,
-                () -> orderService.handoff(order.getOrderId(), userId(CASHIER_1), code));
+                () -> staffOrders.handoff(order.getOrderId(), userId(CASHIER_1), code));
 
         assertTrue(e.getMessage().contains("chưa được nhận tại quầy"),
                 "Đơn sẵn sàng chỉ nghĩa là bếp nấu xong; giao cho khách trước khi quầy cầm "
@@ -219,9 +221,9 @@ class OnlinePreorderFlowIT extends IntegrationTestBase {
     @DisplayName("Quầy cầm món từ bếp không làm đổi trạng thái đơn")
     void receivingAtCounterDoesNotChangeOrderStatus() {
         Order order = readyAtCounter();
-        OrderItem item = orderService.findById(order.getOrderId()).getItems().get(0);
+        OrderItem item = staffOrders.findById(order.getOrderId()).getItems().get(0);
 
-        orderService.receiveAtCounter(item.getOrderItemId(), userId(CASHIER_1));
+        staffOrders.receiveAtCounter(item.getOrderItemId(), userId(CASHIER_1));
 
         assertEquals("READY", statusOf(order.getOrderId()),
                 "Đây là bàn giao nội bộ giữa bếp và quầy, khách chưa nhận được gì");
@@ -231,12 +233,12 @@ class OnlinePreorderFlowIT extends IntegrationTestBase {
     @DisplayName("Cầm một món hai lần thì lần sau bị từ chối")
     void receivingTwiceIsRejected() {
         Order order = readyAtCounter();
-        OrderItem item = orderService.findById(order.getOrderId()).getItems().get(0);
+        OrderItem item = staffOrders.findById(order.getOrderId()).getItems().get(0);
 
-        orderService.receiveAtCounter(item.getOrderItemId(), userId(CASHIER_1));
+        staffOrders.receiveAtCounter(item.getOrderItemId(), userId(CASHIER_1));
 
         assertThrows(BusinessException.class,
-                () -> orderService.receiveAtCounter(item.getOrderItemId(), userId(CASHIER_1)),
+                () -> staffOrders.receiveAtCounter(item.getOrderItemId(), userId(CASHIER_1)),
                 "Bấm đúp không được ghi đè người đã cầm món");
     }
 
@@ -247,7 +249,7 @@ class OnlinePreorderFlowIT extends IntegrationTestBase {
         String code = pickupCodeOf(order.getOrderId());
 
         BusinessException e = assertThrows(BusinessException.class,
-                () -> orderService.handoff(order.getOrderId(), userId(CASHIER_1), code));
+                () -> staffOrders.handoff(order.getOrderId(), userId(CASHIER_1), code));
         assertTrue(e.getMessage().contains("chưa sẵn sàng"), e.getMessage());
     }
 
@@ -257,12 +259,12 @@ class OnlinePreorderFlowIT extends IntegrationTestBase {
         Order order = readyOrder();
         String code = pickupCodeOf(order.getOrderId());
 
-        orderService.handoff(order.getOrderId(), userId(CASHIER_1), code);
+        staffOrders.handoff(order.getOrderId(), userId(CASHIER_1), code);
         LocalDateTime firstPickup = scalar(LocalDateTime.class,
                 "SELECT picked_up_at FROM dbo.Orders WHERE order_id = ?", order.getOrderId());
 
         assertThrows(BusinessException.class,
-                () -> orderService.handoff(order.getOrderId(), userId(CASHIER_1), code));
+                () -> staffOrders.handoff(order.getOrderId(), userId(CASHIER_1), code));
 
         assertEquals(firstPickup, scalar(LocalDateTime.class,
                 "SELECT picked_up_at FROM dbo.Orders WHERE order_id = ?", order.getOrderId()),
@@ -277,7 +279,7 @@ class OnlinePreorderFlowIT extends IntegrationTestBase {
              LocalDateTime.now(), order.getOrderId());
 
         BusinessException e = assertThrows(BusinessException.class,
-                () -> orderService.handoff(order.getOrderId(), userId(CASHIER_1),
+                () -> staffOrders.handoff(order.getOrderId(), userId(CASHIER_1),
                         pickupCodeOf(order.getOrderId())));
 
         assertTrue(e.getMessage().contains("hoàn tiền"),
@@ -291,7 +293,7 @@ class OnlinePreorderFlowIT extends IntegrationTestBase {
     void pickupTimeTooSoonIsRejected() {
         cartService.addProduct(customerId, anyOrderableProductId(), 1);
         assertThrows(com.fastfood.common.exception.ValidationException.class,
-                () -> orderService.createOnlineOrder(customerId, LocalDateTime.now().plusMinutes(5), null));
+                () -> customerOrders.createOnlineOrder(customerId, LocalDateTime.now().plusMinutes(5), null));
     }
 
     @Test
@@ -300,7 +302,7 @@ class OnlinePreorderFlowIT extends IntegrationTestBase {
         cartService.addProduct(customerId, anyOrderableProductId(), 1);
         LocalDateTime threeAm = LocalDateTime.now().toLocalDate().plusDays(1).atTime(3, 0);
         assertThrows(com.fastfood.common.exception.ValidationException.class,
-                () -> orderService.createOnlineOrder(customerId, threeAm, null),
+                () -> customerOrders.createOnlineOrder(customerId, threeAm, null),
                 "Không có ràng buộc này thì bộ hẹn giờ đẩy đơn xuống bếp lúc 2 giờ 40 sáng");
     }
 
@@ -316,7 +318,7 @@ class OnlinePreorderFlowIT extends IntegrationTestBase {
 
     private Order placeAndPay() {
         cartService.addProduct(customerId, anyOrderableProductId(), 1);
-        Order order = orderService.createOnlineOrder(customerId, safePickupTime(), "idem-" + System.nanoTime());
+        Order order = customerOrders.createOnlineOrder(customerId, safePickupTime(), "idem-" + System.nanoTime());
         Callback cb = startPayment(order.getOrderId());
         assertEquals(PaymentService.CallbackResult.PAID, paymentService.handleCallback(cb.toGateway()));
         return order;
@@ -330,8 +332,8 @@ class OnlinePreorderFlowIT extends IntegrationTestBase {
      */
     private Order readyOrder() {
         Order order = readyAtCounter();
-        for (OrderItem item : orderService.findById(order.getOrderId()).getItems()) {
-            orderService.receiveAtCounter(item.getOrderItemId(), userId(CASHIER_1));
+        for (OrderItem item : staffOrders.findById(order.getOrderId()).getItems()) {
+            staffOrders.receiveAtCounter(item.getOrderItemId(), userId(CASHIER_1));
         }
         return order;
     }
@@ -339,7 +341,7 @@ class OnlinePreorderFlowIT extends IntegrationTestBase {
     /** Bếp đã bàn giao món ra quầy nhưng thu ngân chưa xác nhận cầm. */
     private Order readyAtCounter() {
         Order order = readyButStillInKitchen();
-        for (OrderItem item : orderService.findById(order.getOrderId()).getItems()) {
+        for (OrderItem item : staffOrders.findById(order.getOrderId()).getItems()) {
             kitchenService.handOverToCounter(item.getOrderItemId(), userId(KITCHEN_1));
         }
         return order;
@@ -350,7 +352,7 @@ class OnlinePreorderFlowIT extends IntegrationTestBase {
         Order order = placeAndPay();
         dueNow(order.getOrderId());
         scheduleService.releaseDueOrders();
-        OrderItem item = orderService.findById(order.getOrderId()).getItems().get(0);
+        OrderItem item = staffOrders.findById(order.getOrderId()).getItems().get(0);
         kitchenService.claim(item.getOrderItemId(), userId(KITCHEN_1));
         kitchenService.markReady(item.getOrderItemId(), userId(KITCHEN_1));
         return order;

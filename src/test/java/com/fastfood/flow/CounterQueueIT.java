@@ -2,8 +2,8 @@ package com.fastfood.flow;
 
 import com.fastfood.model.entity.Order;
 import com.fastfood.model.entity.OrderItem;
-import com.fastfood.service.KitchenService;
-import com.fastfood.service.OrderService;
+import com.fastfood.service.kitchen.KitchenService;
+import com.fastfood.service.staff.StaffOrderService;
 import com.fastfood.testsupport.IntegrationTestBase;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -29,7 +29,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 class CounterQueueIT extends IntegrationTestBase {
 
     private final KitchenService kitchenService = new KitchenService();
-    private final OrderService orderService = new OrderService();
+    private final StaffOrderService staffOrders = new StaffOrderService();
 
     @Test
     @DisplayName("Bếp bàn giao thì món hiện ra ở quầy, quầy nhận thì món rời danh sách")
@@ -42,7 +42,7 @@ class CounterQueueIT extends IntegrationTestBase {
                 "Khoảng giữa hai mốc chính là lúc món nằm chờ trên quầy — và đó là toàn bộ "
                 + "nội dung màn hình này");
 
-        orderService.receiveAtCounter(itemId, userId(CASHIER_1));
+        staffOrders.receiveAtCounter(itemId, userId(CASHIER_1));
         assertFalse(onCounterQueue(itemId),
                 "Còn nằm lại thì thu ngân bấm đi bấm lại một nút không bao giờ ăn");
     }
@@ -58,7 +58,7 @@ class CounterQueueIT extends IntegrationTestBase {
         exec("UPDATE dbo.Orders SET order_status = 'CANCELLED', cancelled_at = ? WHERE order_id = ?",
              LocalDateTime.now(), orderId);
 
-        OrderItem onQueue = orderService.awaitingCounter().stream()
+        OrderItem onQueue = staffOrders.awaitingCounter().stream()
                 .filter(i -> i.getOrderItemId() == itemId)
                 .findFirst().orElse(null);
 
@@ -80,9 +80,9 @@ class CounterQueueIT extends IntegrationTestBase {
             kitchenService.markReady(itemId, userId(KITCHEN_1));
         }
         kitchenService.handOverToCounter(f.itemIds.get(0), userId(KITCHEN_1));
-        orderService.receiveAtCounter(f.itemIds.get(0), userId(CASHIER_1));
+        staffOrders.receiveAtCounter(f.itemIds.get(0), userId(CASHIER_1));
 
-        Order shown = orderService.readyOrdersForCounter().stream()
+        Order shown = staffOrders.readyOrdersForCounter().stream()
                 .filter(o -> o.getOrderId() == f.orderId)
                 .findFirst().orElse(null);
 
@@ -107,7 +107,7 @@ class CounterQueueIT extends IntegrationTestBase {
     // ------------------------------------------------------------------ dựng dữ liệu
 
     private boolean onCounterQueue(int itemId) {
-        return orderService.awaitingCounter().stream()
+        return staffOrders.awaitingCounter().stream()
                 .anyMatch(i -> i.getOrderItemId() == itemId);
     }
 

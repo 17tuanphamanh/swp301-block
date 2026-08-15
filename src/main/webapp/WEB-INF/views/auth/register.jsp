@@ -10,6 +10,7 @@
 
   <div class="card">
     <form method="post" action="${ctx}/register">
+      <input type="hidden" name="_csrf" value="${csrfToken}">
       <div class="field">
         <label for="fullName">Họ và tên</label>
         <input type="text" id="fullName" name="fullName" value="<c:out value="${fullName}"/>" required autofocus>
@@ -23,7 +24,7 @@
         <input type="text" id="phone" name="phone" value="<c:out value="${phone}"/>" placeholder="0901234567">
       </div>
       <div class="field">
-        <label for="password">Mật khẩu <span class="hint">(tối thiểu 6 ký tự)</span></label>
+        <label for="password">Mật khẩu <span class="hint">(tối thiểu 8 ký tự, có cả chữ và số)</span></label>
         <input type="password" id="password" name="password" required>
       </div>
       <div class="field">

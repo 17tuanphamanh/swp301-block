@@ -64,8 +64,9 @@
         --shade-blue: #16283d;
     }
 
-    /* Nút đặc màu: chữ trắng trên nền sáng màu sẽ chói, đổi sang chữ tối. */
-    .btn-primary, .btn-green, .btn-blue { color: #10161d; }
+    /* Nút đặc màu: chữ trắng trên nền sáng màu sẽ chói, đổi sang chữ tối.
+       Nhãn lọc đang chọn và số thứ tự ba bước cũng nền đặc màu thương hiệu nên đi cùng nhóm. */
+    .btn-primary, .btn-green, .btn-blue, .chip.on, .hero-steps .n { color: #10161d; }
     .btn-green:hover { background: #5bc78e; }
     .btn-blue:hover { background: #62b8ff; }
 
@@ -129,8 +130,26 @@ a:hover { text-decoration: underline; }
 }
 .app-header nav a:hover { background: var(--soft); text-decoration: none; }
 .app-header nav a.active { background: var(--brand-soft); color: var(--brand); }
+/* Huy hiệu số tin chưa đọc. Nền đặc màu thương hiệu chứ không phải chữ đỏ: thanh điều hướng
+   vốn đã toàn chữ, một con số đổi màu lẫn ngay vào đó và không ai nhìn thấy. */
+.nav-badge {
+    display: inline-block;
+    min-width: 18px;
+    margin-left: 5px;
+    padding: 1px 5px;
+    border-radius: 9px;
+    background: var(--brand);
+    color: #fff;
+    font-size: 11px;
+    font-weight: 700;
+    text-align: center;
+    line-height: 16px;
+}
 .user-box { display: flex; align-items: center; gap: 10px; font-size: 13px; }
 .user-box .who { color: var(--muted); }
+/* Nút Thoát là biểu mẫu POST, không phải liên kết (xem LogoutServlet). Thẻ form mặc định là
+   khối, nên nếu không gỡ nó ra khỏi dòng chảy thì nút rơi xuống hàng dưới thanh điều hướng. */
+.logout-form { display: inline; }
 
 .container { max-width: 1220px; margin: 0 auto; padding: 22px 20px 60px; }
 .container.narrow { max-width: 560px; }
@@ -268,8 +287,12 @@ td.center, th.center { text-align: center; }
 .field { margin-bottom: 13px; }
 label { display: block; font-size: 13px; font-weight: 600; margin-bottom: 5px; }
 label .hint { font-weight: 400; color: var(--muted); }
+/* input[type=date] có mặt ở đây vì năm màn hình đang dùng nó — thiếu tên đó trong danh sách
+   thì riêng mấy ô chọn ngày rơi về kiểu mặc định của trình duyệt, cao thấp lệch hẳn so với
+   ô bên cạnh trên cùng một hàng lọc. */
 input[type=text], input[type=email], input[type=password], input[type=number],
-input[type=search], input[type=datetime-local], input[type=url], select, textarea {
+input[type=search], input[type=date], input[type=datetime-local], input[type=url],
+select, textarea {
     width: 100%;
     padding: 8px 11px;
     border: 1px solid var(--line);
@@ -338,11 +361,124 @@ textarea { min-height: 72px; resize: vertical; }
 */
 .thumb-img { display: block; width: 100%; object-fit: cover; background: var(--soft); }
 .product .body { padding: 12px; flex: 1; display: flex; flex-direction: column; gap: 5px; }
-.product .name { font-weight: 600; }
-.product .desc { color: var(--muted); font-size: 12px; flex: 1; }
+
+/* Tên món là <h3> để trình đọc màn hình lướt được giữa các món; cỡ chữ kéo về đúng cỡ cũ,
+   không lấy theo cỡ mặc định của h3 ở đầu tệp. Chữ màu mực chứ không màu liên kết: cả lưới
+   toàn tên món mà đều xanh thì không còn nhận ra đâu là thứ đáng bấm. */
+.product .name { font-size: 14px; font-weight: 600; margin: 0; }
+.product .name a { color: var(--ink); }
+
+/*
+  Mô tả cắt gọn ở ba dòng. Không cắt thì một món tả dài mười dòng kéo cả hàng thẻ cao theo
+  nó — lưới dùng grid nên các thẻ cùng hàng luôn bằng nhau — và giá cùng nút "Thêm vào giỏ"
+  của những món bên cạnh bị đẩy xuống tận đáy một khoảng trắng mênh mông.
+*/
+.product .desc {
+    color: var(--muted);
+    font-size: 12px;
+    flex: 1;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+    line-clamp: 3;
+    overflow: hidden;
+}
 /* Không giới hạn trong .product: trang chi tiết món cũng hiện giá, ở cỡ lớn hơn. */
 .price { color: var(--brand); font-weight: 700; }
 .product .foot { padding: 0 12px 12px; }
+
+/* Thẻ món nhấc nhẹ khi trỏ vào, để thấy rõ cả thẻ là một khối chứ không phải mấy dòng chữ
+   rời nhau. Tắt hiệu ứng cho người đã bật "giảm chuyển động" trong hệ điều hành. */
+.product { transition: box-shadow 0.15s, transform 0.15s; }
+.product:hover { box-shadow: 0 6px 16px rgba(16, 24, 40, 0.10); transform: translateY(-2px); }
+@media (prefers-reduced-motion: reduce) {
+    .product { transition: none; }
+    .product:hover { transform: none; }
+}
+
+/*
+  Dãy nhãn lọc nhóm món. Mỗi nhãn là một liên kết mang sẵn cả từ khoá lẫn thứ tự đang chọn,
+  nên bấm một nhãn chỉ đổi đúng một thứ.
+*/
+.chips { display: flex; flex-wrap: wrap; gap: 7px; }
+.chip {
+    display: inline-block;
+    padding: 5px 12px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: var(--paper);
+    color: var(--ink-2);
+    font-size: 13px;
+    font-weight: 500;
+}
+.chip:hover { background: var(--soft); text-decoration: none; }
+/* Nhãn đang chọn tô đặc màu thương hiệu: viền đổi màu thôi thì nhìn lướt qua một dãy mười
+   nhãn không thấy cái nào đang bật. */
+.chip.on { background: var(--brand); border-color: var(--brand); color: #fff; }
+.chip.on:hover { background: var(--brand-dark); }
+
+/* Dòng đếm kết quả nằm giữa hộp lọc và lưới món, nên không cần khung riêng. */
+.result-line { margin: -4px 0 12px; }
+.result-line p { margin: 0; }
+
+/* Ô chọn hẹp trong hàng lọc — "Sắp xếp" không cần rộng bằng ô tìm kiếm. */
+.form-row .field-narrow { flex: 0 1 190px; }
+
+/* ------------------------------------------------------------- khối giới thiệu
+
+  Chỉ hiện với khách chưa đăng nhập, ở đầu thực đơn. Người đã đăng nhập đã biết đây là chỗ
+  làm gì rồi, nên với họ trang mở thẳng vào thực đơn — nhắc lại mỗi lần vào chỉ tổ đẩy món
+  ăn xuống dưới mép màn hình.
+*/
+.hero {
+    display: grid;
+    grid-template-columns: 1.15fr 1fr;
+    gap: 26px;
+    align-items: center;
+    background: var(--paper);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 26px;
+    margin-bottom: 16px;
+}
+.hero-eyebrow {
+    color: var(--brand);
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+}
+.hero h1 { font-size: 27px; line-height: 1.25; letter-spacing: -0.02em; margin-top: 6px; }
+.hero-lead { color: var(--muted); margin-top: 9px; max-width: 46ch; }
+.hero-cta { margin: 16px 0 8px; }
+
+/* Ba bước đánh số. Là <ol> chứ không phải ba ô rời: thứ tự chính là nội dung — chọn món
+   trước, hẹn giờ sau, tới lấy sau cùng. */
+.hero-steps { list-style: none; display: flex; flex-direction: column; gap: 11px; }
+.hero-steps li {
+    display: flex;
+    gap: 11px;
+    align-items: flex-start;
+    background: var(--soft);
+    border: 1px solid var(--line);
+    border-radius: 9px;
+    padding: 11px 13px;
+}
+.hero-steps .n {
+    flex-shrink: 0;
+    width: 24px;
+    height: 24px;
+    border-radius: 50%;
+    background: var(--brand);
+    color: #fff;
+    font-size: 12px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+.hero-steps strong { display: block; }
+.hero-steps span.small { display: block; }
 
 /* ------------------------------------------------------------------ chỉ số */
 
@@ -353,6 +489,30 @@ textarea { min-height: 72px; resize: vertical; }
 .kpi.good .value { color: var(--green); }
 .kpi.warn .value { color: var(--amber); }
 .kpi.bad .value  { color: var(--red); }
+
+/* Đánh giá món. Sao dùng ký tự chứ không dùng ảnh: không tải thêm gì, và phóng to chữ thì
+   sao phóng theo. aria-hidden ở nơi dùng, kèm một nhãn chữ cho trình đọc màn hình. */
+.stars { color: var(--amber); letter-spacing: 1px; }
+.rating-line { display: flex; align-items: center; gap: 6px; }
+/* Trên thẻ món, cả cụm điểm là một liên kết dẫn thẳng tới phần đánh giá của trang chi tiết. */
+a.rating-line { text-decoration: none; color: inherit; margin: 2px 0; }
+a.rating-line:hover .stars { filter: brightness(0.9); }
+.review { padding: 10px 0; border-top: 1px solid var(--line); }
+.review:first-of-type { border-top: 0; }
+.review p { margin: 4px 0 0; }
+
+/* Nút món quen trên lưới thực đơn. Trạng thái đã đánh dấu phải nhận ra được mà không cần đọc
+   chữ — ngôi sao đặc và màu hổ phách — vì mắt lướt qua cả lưới chứ không đọc từng nút. */
+.btn-fav { margin-top: 6px; }
+.btn-fav.on { color: var(--amber); border-color: var(--amber); background: var(--shade-amber); }
+
+/* Thanh tiến độ chỉ tiêu doanh thu. Màu lấy theo chính lớp good/warn/bad của ô chứa nó, để
+   con số và thanh không bao giờ nói hai chuyện khác nhau. */
+.progress { height: 6px; background: var(--line); border-radius: 3px; overflow: hidden; margin: 6px 0 4px; }
+.progress-bar { height: 100%; background: var(--brand); border-radius: 3px; }
+.kpi.good .progress-bar { background: var(--green); }
+.kpi.warn .progress-bar { background: var(--amber); }
+.kpi.bad  .progress-bar { background: var(--red); }
 
 /* ------------------------------------------------------------------ tab */
 
@@ -426,14 +586,39 @@ textarea { min-height: 72px; resize: vertical; }
 .step.current { color: var(--brand); font-weight: 700; }
 .step.current::before { background: var(--brand); }
 
+/* ------------------------------------------------------------------ hộp thông báo */
+
+/* Danh sách chứ không phải bảng: mỗi tin là một đoạn văn dài ngắn khác nhau, nhồi vào ô bảng
+   thì chiều cao hàng nhảy loạn và cột ngày trôi đi đâu mất. */
+.notice-list { list-style: none; }
+.notice {
+    display: flex;
+    gap: 12px;
+    padding: 13px 16px;
+    border-bottom: 1px solid var(--line);
+}
+.notice:last-child { border-bottom: 0; }
+/* Tin chưa đọc nhận ra bằng BA dấu hiệu chồng lên nhau — nền, vạch trái, và thẻ chữ "Mới"
+   trong HTML. Chỉ dựa vào màu nền thì người không phân biệt được màu, hoặc đang ngồi ngoài
+   nắng, nhìn danh sách này thấy mọi dòng như nhau. */
+.notice.unread { background: var(--soft); box-shadow: inset 3px 0 0 var(--brand); }
+.notice-icon { font-size: 20px; line-height: 1.3; }
+.notice p { margin: 0; }
+
 /* ------------------------------------------------------------------ linh tinh */
 
 .muted { color: var(--muted); }
+/* Dùng cho con số cần bật ra khỏi dòng chữ, ví dụ "còn thiếu ..." ở ô tính tiền thối tại quầy.
+   Khác .tag-red ở chỗ không có nền: đây là một dòng trong bảng tính tiền, không phải huy hiệu. */
+.text-red { color: var(--red); }
 .small { font-size: 12px; }
 .mono { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; }
 .right { text-align: right; }
 .mt { margin-top: 14px; }
 .mb { margin-bottom: 14px; }
+/* khoảng cách hẹp, dùng giữa các dòng của cùng một khối — 14px ở đó làm khối rời ra thành
+   mấy mảnh không còn đọc như một tin nữa */
+.mt-tight { margin-top: 6px; }
 .row-between { display: flex; justify-content: space-between; align-items: center; gap: 12px; }
 .stack { display: flex; flex-direction: column; gap: 9px; }
 .actions { display: flex; gap: 7px; flex-wrap: wrap; }
@@ -587,6 +772,16 @@ a.kds-card:hover { text-decoration: none; border-color: var(--muted); }
 @media (max-width: 900px) {
     .grid-2, .grid-3, .grid-4, .grid-side { grid-template-columns: 1fr; }
     .app-header .inner { flex-wrap: wrap; }
+
+    /* Khối giới thiệu xếp dọc: hai cột trên màn hẹp làm cả ba bước bị bóp thành cột chữ
+       gãy vụn. Chữ tiêu đề nhỏ lại theo, không thì một dòng chiếm hết khung nhìn. */
+    .hero { grid-template-columns: 1fr; gap: 20px; padding: 22px 18px; }
+    .hero h1 { font-size: 22px; }
+
+    /* Ngoại lệ: bốn ô chỉ báo của màn hình bếp xếp 2×2 chứ không chồng thành bốn hàng.
+       Chồng dọc thì hàng chờ bị đẩy hẳn xuống dưới mép màn, mà hàng chờ mới là thứ đầu bếp
+       ngẩng lên nhìn — bốn con số chỉ là phần tóm tắt. Đặt sau dòng trên để đè lại .grid-4. */
+    .kds-kpis { grid-template-columns: 1fr 1fr; }
 }
 
 @media (max-width: 720px) {
@@ -747,3 +942,17 @@ a.kds-card:hover { text-decoration: none; border-color: var(--muted); }
         scroll-behavior: auto !important;
     }
 }
+
+/* Ô nhập ngắn nằm chung hàng với nút trong bảng — dùng ở màn Quầy giao nhận (lý do từ chối)
+   và màn điều phối (ghi chú nhanh). Không dùng .field vì ở đây không có nhãn riêng: nhãn
+   chính là placeholder, và cả cụm phải vừa một dòng của ô bảng. */
+.input-sm {
+  width: 14rem;
+  max-width: 100%;
+  padding: .3rem .5rem;
+  font-size: .85rem;
+}
+
+/* Hàng ghi chú nằm dưới mỗi dòng đơn ở màn điều phối. Không viền trên để nó đọc như phần
+   phụ của dòng ngay trên, không phải một dòng đơn khác. */
+.note-row > td { border-top: 0; padding-top: 0; }

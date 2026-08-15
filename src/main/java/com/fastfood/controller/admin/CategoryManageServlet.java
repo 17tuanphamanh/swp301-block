@@ -4,7 +4,7 @@ import com.fastfood.common.util.WebUtil;
 import com.fastfood.controller.BaseServlet;
 import com.fastfood.model.entity.Category;
 import com.fastfood.model.entity.User;
-import com.fastfood.service.AdminService;
+import com.fastfood.service.admin.AdminService;
 
 import javax.servlet.ServletException;
 import javax.servlet.annotation.WebServlet;
@@ -14,8 +14,10 @@ import java.io.IOException;
 
 /**
  * Quản lý nhóm món.
- * Tắt một nhóm sẽ ẩn toàn bộ món trong nhóm khỏi thực đơn — đây là cách nhanh nhất
- * để ngừng bán cả một dòng sản phẩm.
+ * <p>
+ * Xoá ở đây là <b>ẩn nhóm</b> khỏi thực đơn, kéo theo toàn bộ món trong nhóm — cách nhanh nhất
+ * để ngừng bán cả một dòng sản phẩm. Xoá mềm vì các món vẫn trỏ tới nhóm bằng khoá ngoại.
+ * Nút Ẩn đi theo nhánh {@code retire} riêng, tách khỏi form Sửa.
  */
 @WebServlet("/admin/categories")
 public class CategoryManageServlet extends BaseServlet {
@@ -36,12 +38,22 @@ public class CategoryManageServlet extends BaseServlet {
     @Override
     protected void doPost(HttpServletRequest req, HttpServletResponse resp) throws IOException {
         User admin = requireUser(req);
+        String action = WebUtil.getString(req, "action");
+
+        if ("retire".equals(action) || "restore".equals(action)) {
+            int categoryId = WebUtil.getInt(req, "categoryId", 0);
+            String status = "restore".equals(action) ? "ACTIVE" : "INACTIVE";
+            handle(req, resp, () -> adminService.setCategoryStatus(admin.getUserId(), categoryId, status),
+                    "restore".equals(action) ? "Đã hiện lại nhóm món." : "Đã ẩn nhóm món khỏi thực đơn.",
+                    "/admin/categories");
+            return;
+        }
 
         Category form = new Category();
         form.setCategoryId(WebUtil.getInt(req, "categoryId", 0));
         form.setName(WebUtil.getString(req, "name"));
         form.setDisplayOrder(WebUtil.getInt(req, "displayOrder", 0));
-        form.setStatus(WebUtil.getBoolean(req, "active") ? "ACTIVE" : "INACTIVE");
+        // Trạng thái hiển thị cố ý không đọc từ form: nó thuộc về nhánh retire/restore ở trên.
 
         handle(req, resp, () -> adminService.saveCategory(admin.getUserId(), form),
                 form.getCategoryId() > 0 ? "Đã cập nhật nhóm món." : "Đã thêm nhóm món.",

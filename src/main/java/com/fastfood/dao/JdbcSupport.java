@@ -4,6 +4,7 @@ import java.math.BigDecimal;
 import java.sql.PreparedStatement;
 import java.sql.ResultSet;
 import java.sql.SQLException;
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 /**
@@ -32,6 +33,19 @@ public final class JdbcSupport {
             ps.setNull(index, java.sql.Types.TIMESTAMP);
         } else {
             ps.setTimestamp(index, java.sql.Timestamp.valueOf(value));
+        }
+    }
+
+    public static LocalDate getDate(ResultSet rs, String column) throws SQLException {
+        java.sql.Date date = rs.getDate(column);
+        return date == null ? null : date.toLocalDate();
+    }
+
+    public static void setDate(PreparedStatement ps, int index, LocalDate value) throws SQLException {
+        if (value == null) {
+            ps.setNull(index, java.sql.Types.DATE);
+        } else {
+            ps.setDate(index, java.sql.Date.valueOf(value));
         }
     }
 

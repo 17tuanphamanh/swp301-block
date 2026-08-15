@@ -142,15 +142,29 @@
         var tpl = document.getElementById('kds-card-template');
         var emptyBox = document.getElementById('kds-empty');
         var offline = document.getElementById('kds-offline');
-        var taskCount = document.getElementById('kds-mytasks-count');
-        var handoverCount = document.getElementById('kds-handover-count');
+        var stale = document.getElementById('kds-stale');
+        var reload = document.getElementById('kds-reload');
         if (!grid || !tpl) {
             return;
         }
 
         var endpoint = watch.dataset.endpoint;
         var detailBase = watch.dataset.detailBase;
+        // Số thẻ máy chủ đã vẽ ở hai khối "đang làm" và "chờ bàn giao". Cố định suốt lượt xem
+        // trang này: đó chính là thứ để so xem những gì đang hiển thị có còn đúng không.
+        var renderedMyTasks = Number(watch.dataset.renderedMytasks);
+        var renderedHandover = Number(watch.dataset.renderedHandover);
         var misses = 0;
+
+        if (reload) {
+            reload.addEventListener('click', function () { window.location.reload(); });
+        }
+
+        /** Ghi một con số vào ô chỉ báo, bỏ qua nếu trang không có ô đó. */
+        function setCount(id, value) {
+            var el = document.getElementById(id);
+            if (el) { el.textContent = value; }
+        }
 
         function poll() {
             fetch(endpoint, { headers: { 'Accept': 'application/json' } })
@@ -167,10 +181,23 @@
                     var isEmpty = !data.queue || data.queue.length === 0;
                     grid.hidden = isEmpty;
                     if (emptyBox) { emptyBox.hidden = !isEmpty; }
+
                     // Chỉ cập nhật con số, không dựng lại hai khối phía trên: thẻ ở đó có nút
                     // gửi biểu mẫu, vẽ lại giữa chừng sẽ cướp mất cú bấm đang dở của đầu bếp.
-                    if (taskCount) { taskCount.textContent = data.myTaskCount; }
-                    if (handoverCount) { handoverCount.textContent = data.handoverCount; }
+                    setCount('kds-mytasks-count', data.myTaskCount);
+                    setCount('kds-handover-count', data.handoverCount);
+                    setCount('kds-kpi-mytasks', data.myTaskCount);
+                    setCount('kds-kpi-handover', data.handoverCount);
+                    setCount('kds-kpi-queue', data.queueCount);
+                    setCount('kds-kpi-issues', data.openIssueCount);
+
+                    // Con số đã đổi nhưng thẻ thì không — vì cố ý không vẽ lại. Nói ra chỗ
+                    // lệch đó và mời tải lại, thay vì để đầu bếp nhìn một khối đã cũ mà
+                    // tưởng là mới.
+                    if (stale) {
+                        stale.hidden = data.myTaskCount === renderedMyTasks
+                                    && data.handoverCount === renderedHandover;
+                    }
                 })
                 .catch(function () {
                     // Một lần hụt có thể chỉ là mạng chớp. Báo cho đầu bếp khi đã hụt liên
@@ -459,6 +486,54 @@
         });
     }
 
+    /* ============================================================== tính tiền thối
+
+       Thu ngân nhẩm tiền thối trong đầu là chỗ sai tiền dễ nhất trong cả ca, và cũng là chỗ
+       khó phát hiện nhất: két lệch vài chục nghìn thì cuối ca mới biết, lúc đó không còn nhớ
+       nổi đơn nào.
+
+       Con số này KHÔNG gửi lên máy chủ và không được lưu: khoản thu luôn đúng bằng tổng đơn,
+       còn tờ tiền khách đưa là chuyện xảy ra ở mặt quầy. Ô nhập vì vậy cố ý không có thuộc
+       tính name. Tắt JavaScript thì ô nằm im như một ô trống và nút thu tiền vẫn bấm được.
+       ============================================================================= */
+
+    function formatDong(amount) {
+        return Math.round(amount).toLocaleString('vi-VN') + ' đ';
+    }
+
+    function bindChangeCalculator() {
+        Array.prototype.forEach.call(document.querySelectorAll('[data-change-form]'), function (form) {
+            var input = form.querySelector('[data-change-input]');
+            var output = form.querySelector('[data-change-output]');
+            var total = parseFloat(form.dataset.total);
+            if (!input || !output || isNaN(total)) {
+                return;
+            }
+
+            function refresh() {
+                var given = parseFloat(input.value);
+                if (isNaN(given) || input.value.trim() === '') {
+                    output.hidden = true;
+                    output.textContent = '';
+                    return;
+                }
+                output.hidden = false;
+                if (given < total) {
+                    // Thiếu tiền không phải lỗi chặn: khách có thể đưa làm hai lần. Chỉ nói ra
+                    // còn thiếu bao nhiêu, và không đụng tới nút thu tiền.
+                    output.className = 'total-line grand text-red';
+                    output.textContent = 'Còn thiếu ' + formatDong(total - given);
+                    return;
+                }
+                output.className = 'total-line grand';
+                output.textContent = 'Thối lại ' + formatDong(given - total);
+            }
+
+            input.addEventListener('input', refresh);
+            refresh();
+        });
+    }
+
     /** Nút in. Để ở đây thay vì onclick="window.print()" viết thẳng trong trang. */
     function bindPrint() {
         Array.prototype.forEach.call(document.querySelectorAll('[data-print]'), function (btn) {
@@ -475,6 +550,7 @@
         bindImageFallback();
         bindConfirm();
         bindUrlPreview();
+        bindChangeCalculator();
         bindPrint();
     });
 })();

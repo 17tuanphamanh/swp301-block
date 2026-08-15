@@ -133,6 +133,35 @@
     </table>
   </div>
 
+  <%-- Tin đã gửi cho khách về chính đơn này. Đặt ngay dưới danh sách món chứ không để riêng ở
+       hộp thông báo: khi khách thắc mắc "sao đơn của tôi thành ra thế này", họ mở đơn ra xem
+       chứ không đi tìm hộp thư, và câu trả lời — huỷ vì lý do gì, tiền đã hoàn chưa — nằm
+       trong mấy dòng này. --%>
+  <c:if test="${not empty notifications}">
+    <div class="card pad0">
+      <div class="card-head"><h2>Tin đã gửi cho bạn</h2></div>
+      <ul class="notice-list">
+        <c:forEach var="n" items="${notifications}">
+          <li class="notice">
+            <div class="notice-icon" aria-hidden="true">${ff:notificationIcon(n.eventType)}</div>
+            <div class="grow">
+              <div class="row-between">
+                <span class="${ff:notificationEventClass(n.eventType)}">
+                  ${ff:notificationEvent(n.eventType)}
+                </span>
+                <span class="small muted">${ff:dateTime(n.sentAt)}</span>
+              </div>
+              <p class="small mt-tight"><c:out value="${n.content}"/></p>
+              <c:if test="${n.failed}">
+                <div class="mt-tight"><span class="tag tag-red">Gửi tới email không thành công</span></div>
+              </c:if>
+            </div>
+          </li>
+        </c:forEach>
+      </ul>
+    </div>
+  </c:if>
+
   <c:if test="${order.cancellable}">
     <div class="card">
       <h3>Huỷ đơn</h3>
@@ -151,6 +180,7 @@
       </p>
       <form method="post" action="${ctx}/order/track"
             data-confirm="Huỷ đơn hàng này?">
+        <input type="hidden" name="_csrf" value="${csrfToken}">
         <input type="hidden" name="orderId" value="${order.orderId}">
         <button type="submit" class="btn btn-danger">Huỷ đơn hàng</button>
       </form>

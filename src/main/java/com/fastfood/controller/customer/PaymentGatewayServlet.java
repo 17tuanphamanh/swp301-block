@@ -2,7 +2,7 @@ package com.fastfood.controller.customer;
 
 import com.fastfood.common.util.WebUtil;
 import com.fastfood.controller.BaseServlet;
-import com.fastfood.service.PaymentService;
+import com.fastfood.service.shared.PaymentService;
 
 import javax.servlet.ServletException;
 import javax.servlet.annotation.WebServlet;

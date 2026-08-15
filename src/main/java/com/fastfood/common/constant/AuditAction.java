@@ -48,15 +48,76 @@ public final class AuditAction {
      */
     public static final String ISSUE_CANCELLED   = "ISSUE_CANCELLED";
 
+    /**
+     * Kế hoạch chuẩn bị sẵn trong ca. Ghi nhật ký vì đây là con số quyết định bao nhiêu nguyên
+     * liệu bị dùng trước khi có đơn — làm dư thì đổ bỏ, làm thiếu thì khách chờ. Cuối ca cần
+     * truy được ai đặt số và đã sửa mấy lần.
+     */
+    public static final String PREP_PLANNED      = "PREP_PLANNED";
+    public static final String PREP_UPDATED      = "PREP_UPDATED";
+    public static final String PREP_DONE         = "PREP_DONE";
+    public static final String PREP_CANCELLED    = "PREP_CANCELLED";
+
+    /**
+     * Ca làm việc của thu ngân. Ghi nhật ký vì đóng ca là lúc một con số chênh lệch tiền mặt
+     * được chốt lại — nếu về sau có tranh cãi, phải truy được ai đóng, lúc nào, và hệ thống
+     * tính ra bao nhiêu so với số người đó đếm được.
+     */
+    public static final String SHIFT_OPENED      = "SHIFT_OPENED";
+    public static final String SHIFT_CLOSED      = "SHIFT_CLOSED";
+    public static final String SHIFT_CANCELLED   = "SHIFT_CANCELLED";
+
     // Pickup
     public static final String PICKUP_VERIFY_OK     = "PICKUP_VERIFY_OK";     // BR-15
     public static final String PICKUP_VERIFY_FAILED = "PICKUP_VERIFY_FAILED"; // case F mục 15
     public static final String HANDOFF              = "HANDOFF";
 
+    /**
+     * Đăng nhập, đăng xuất và đặt lại mật khẩu.
+     * <p>
+     * Tách riêng khỏi {@link #USER_CHANGED} chứ không gộp, cùng lý do với ISSUE_CANCELLED: đây là
+     * nhóm duy nhất trả lời được câu hỏi "có ai đang dò mật khẩu tài khoản này không". Gộp vào
+     * một mã chung thì dấu hiệu đó chìm giữa hàng trăm dòng sửa họ tên và đổi vai trò.
+     * <p>
+     * LOGIN_FAILED không có người thực hiện — chưa ai chứng minh được mình là ai cả — nên
+     * {@code actor_id} để trống và email vừa gõ nằm ở {@code new_value}. Đó chính là thứ cần đọc
+     * khi rà soát: cùng một email bị thử liên tiếp, hay nhiều email khác nhau bị quét lần lượt.
+     */
+    public static final String LOGIN_SUCCESS     = "LOGIN_SUCCESS";
+    public static final String LOGIN_FAILED      = "LOGIN_FAILED";
+    /** Vượt ngưỡng thử sai, cửa bị tạm khoá. Ghi một lần cho mỗi đợt, không ghi lại ở mọi lần thử. */
+    public static final String LOGIN_BLOCKED     = "LOGIN_BLOCKED";
+    public static final String LOGOUT            = "LOGOUT";
+    public static final String PASSWORD_RESET_REQUESTED = "PASSWORD_RESET_REQUESTED";
+    public static final String PASSWORD_RESET_DONE      = "PASSWORD_RESET_DONE";
+
     // Admin
     public static final String PRODUCT_CHANGED   = "PRODUCT_CHANGED";
     public static final String CATEGORY_CHANGED  = "CATEGORY_CHANGED";
     public static final String USER_CHANGED      = "USER_CHANGED";
+
+    /**
+     * Ngừng bán và bán lại — thao tác Xoá (mềm) của hai màn hình quản trị danh mục.
+     * <p>
+     * Không gộp vào PRODUCT_CHANGED / CATEGORY_CHANGED cùng lý do với ISSUE_CANCELLED: sửa giá
+     * một món và gỡ hẳn món đó khỏi thực đơn là hai việc khác nhau về hậu quả. Câu hỏi hay gặp
+     * nhất khi rà soát thực đơn là "món này ai gỡ, lúc nào" — gộp một mã thì phải lọc tay giữa
+     * hàng trăm dòng sửa giá mới trả lời được.
+     */
+    public static final String PRODUCT_RETIRED   = "PRODUCT_RETIRED";
+    public static final String PRODUCT_RESTORED  = "PRODUCT_RESTORED";
+    public static final String CATEGORY_RETIRED  = "CATEGORY_RETIRED";
+    public static final String CATEGORY_RESTORED = "CATEGORY_RESTORED";
+
+    /**
+     * Chỉ tiêu doanh thu. Bảng RevenueTarget cho xoá hẳn, khác Shift — nên chính dòng nhật ký
+     * này là thứ duy nhất còn lại sau khi bản ghi biến mất. Vì vậy TARGET_DELETED bắt buộc mang
+     * theo con số cũ trong old_value: thiếu nó thì câu hỏi "chỉ tiêu tháng trước là bao nhiêu và
+     * ai bỏ đi" không còn trả lời được ở đâu cả.
+     */
+    public static final String TARGET_CREATED    = "TARGET_CREATED";
+    public static final String TARGET_UPDATED    = "TARGET_UPDATED";
+    public static final String TARGET_DELETED    = "TARGET_DELETED";
 
     private AuditAction() {
     }

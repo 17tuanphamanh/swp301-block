@@ -1,7 +1,9 @@
 package com.fastfood.flow;
 
 import com.fastfood.common.exception.BusinessException;
-import com.fastfood.service.KitchenService;
+import com.fastfood.model.dto.Page;
+import com.fastfood.model.entity.OrderItem;
+import com.fastfood.service.kitchen.KitchenService;
 import com.fastfood.testsupport.IntegrationTestBase;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -315,6 +317,76 @@ class KitchenFlowIT extends IntegrationTestBase {
         assertFalse(kitchenService.myTasks(userId(KITCHEN_2)).stream()
                         .anyMatch(v -> v.getItem().getOrderItemId() == f.itemIds.get(0)),
                 "Việc của người này không được hiện trong danh sách của người kia");
+    }
+
+    // ------------------------------------------------------------------ ô chọn món khi báo sự cố
+
+    @Test
+    @DisplayName("Ô chọn khi báo sự cố gồm mọi món còn trong bếp, kể cả món người khác đang làm")
+    void issuePickerCoversEveryStageStillInsideTheKitchen() {
+        Fixture waiting = orderWithItems(1);
+        Fixture preparing = orderWithItems(1);
+        kitchenService.claim(preparing.itemIds.get(0), userId(KITCHEN_2));
+        Fixture ready = readyItem();
+        Fixture unreleased = orderWithItems(1, false);
+
+        List<Integer> ids = kitchenService.itemsInKitchen().stream()
+                .map(v -> v.getItem().getOrderItemId()).toList();
+
+        assertTrue(ids.contains(waiting.itemIds.get(0)));
+        assertTrue(ids.contains(preparing.itemIds.get(0)),
+                "Người phát hiện món cháy thường không phải người đang đứng nấu nó");
+        assertTrue(ids.contains(ready.itemIds.get(0)),
+                "Món xong mà chưa ra quầy vẫn nằm trong bếp, vẫn hỏng được");
+        assertFalse(ids.contains(unreleased.itemIds.get(0)),
+                "Đơn chưa tới lượt vào bếp thì bếp còn chưa được nhìn thấy, nói gì tới báo sự cố");
+    }
+
+    @Test
+    @DisplayName("Món đã bàn giao ra quầy rời khỏi ô chọn báo sự cố")
+    void handedOverItemLeavesTheIssuePicker() {
+        Fixture f = readyItem();
+        kitchenService.handOverToCounter(f.itemIds.get(0), userId(KITCHEN_1));
+
+        assertFalse(kitchenService.itemsInKitchen().stream()
+                        .anyMatch(v -> v.getItem().getOrderItemId() == f.itemIds.get(0)),
+                "Món đã rời tay đầu bếp; sự cố của nó là chuyện của quầy");
+    }
+
+    // ------------------------------------------------------------------ lịch sử món đã xong
+
+    @Test
+    @DisplayName("Lịch sử lọc theo người làm chỉ trả về món của người đó")
+    void readyHistoryCanBeNarrowedToOneCook() {
+        Fixture mine = readyItem();
+        Fixture theirs = orderWithItems(1);
+        kitchenService.claim(theirs.itemIds.get(0), userId(KITCHEN_2));
+        kitchenService.markReady(theirs.itemIds.get(0), userId(KITCHEN_2));
+
+        Page<OrderItem> onlyMine = kitchenService.recentReady(1, userId(KITCHEN_1));
+
+        assertTrue(listed(onlyMine, mine.itemIds.get(0)));
+        assertFalse(listed(onlyMine, theirs.itemIds.get(0)));
+        assertTrue(listed(kitchenService.recentReady(1, 0), theirs.itemIds.get(0)),
+                "Bỏ lọc thì phải thấy lại món của cả bếp");
+    }
+
+    @Test
+    @DisplayName("Thanh chuyển trang đếm đúng cái mà bảng đang liệt kê")
+    void readyHistoryCountMatchesTheFilteredList() {
+        readyItem();
+
+        Page<OrderItem> onlyMine = kitchenService.recentReady(1, userId(KITCHEN_1));
+
+        assertEquals(count("SELECT COUNT(*) FROM dbo.OrderItem " +
+                        "WHERE item_status = 'READY' AND assigned_to_user_id = ?", userId(KITCHEN_1)),
+                onlyMine.getTotalItems(),
+                "Câu đếm lọc khác câu lấy trang thì thanh chuyển trang báo tổng của cả bếp "
+                + "trong khi bảng chỉ liệt kê món của một người");
+    }
+
+    private static boolean listed(Page<OrderItem> page, int itemId) {
+        return page.getItems().stream().anyMatch(i -> i.getOrderItemId() == itemId);
     }
 
     // ------------------------------------------------------------------ dựng dữ liệu

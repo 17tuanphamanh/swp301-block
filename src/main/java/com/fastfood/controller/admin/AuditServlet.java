@@ -2,7 +2,7 @@ package com.fastfood.controller.admin;
 
 import com.fastfood.common.util.WebUtil;
 import com.fastfood.controller.BaseServlet;
-import com.fastfood.service.AuditService;
+import com.fastfood.service.shared.AuditService;
 
 import javax.servlet.ServletException;
 import javax.servlet.annotation.WebServlet;

@@ -3,7 +3,7 @@ package com.fastfood.controller.customer;
 import com.fastfood.common.util.WebUtil;
 import com.fastfood.controller.BaseServlet;
 import com.fastfood.model.entity.User;
-import com.fastfood.service.AuthService;
+import com.fastfood.service.auth.AuthService;
 
 import javax.servlet.ServletException;
 import javax.servlet.annotation.WebServlet;

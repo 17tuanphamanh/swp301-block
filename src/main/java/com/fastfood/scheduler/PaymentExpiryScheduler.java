@@ -1,6 +1,6 @@
 package com.fastfood.scheduler;
 
-import com.fastfood.service.ScheduleService;
+import com.fastfood.service.shared.ScheduleService;
 
 import java.util.logging.Level;
 import java.util.logging.Logger;
