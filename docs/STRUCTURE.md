@@ -570,7 +570,7 @@ mật khẩu mới. Đổi chính sách mà khoá luôn cửa với tài khoản
 # 1. Cơ sở dữ liệu
 sqlcmd -S localhost -U sa -P '<mật khẩu>' -C -i database/FastFoodPreorder.sql
 
-# 2. Sửa src/main/resources/db.properties cho khớp máy chủ SQL Server
+# 2. Đặt DB_USERNAME / DB_PASSWORD (hoặc tạo src/main/resources/db.local.properties)
 
 # 3. Đóng gói và triển khai
 mvn clean package

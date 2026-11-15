@@ -2,6 +2,7 @@ package com.fastfood.testsupport;
 
 import com.fastfood.config.AppConfig;
 import com.fastfood.config.DBContext;
+import com.fastfood.config.DbCredentials;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -231,7 +232,7 @@ public final class TestDatabase {
             }
             p.load(in);
         }
-        return p;
+        return DbCredentials.apply(p);
     }
 
     private static String databaseNameOf(String jdbcUrl) {

@@ -89,6 +89,6 @@ public final class DBContext {
         } catch (IOException e) {
             throw new IllegalStateException("Khong doc duoc db.properties", e);
         }
-        return p;
+        return DbCredentials.apply(p);
     }
 }

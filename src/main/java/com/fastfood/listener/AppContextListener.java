@@ -41,7 +41,8 @@ public class AppContextListener implements ServletContextListener {
         if (DBContext.testConnection()) {
             LOG.info("Ket noi SQL Server thanh cong.");
         } else {
-            LOG.severe("KHONG ket noi duoc SQL Server. Kiem tra src/main/resources/db.properties "
+            LOG.severe("KHONG ket noi duoc SQL Server. Kiem tra db.url trong db.properties, "
+                     + "bien moi truong DB_USERNAME / DB_PASSWORD (hoac db.local.properties) "
                      + "va bao dam da chay database/FastFoodPreorder.sql.");
         }
 

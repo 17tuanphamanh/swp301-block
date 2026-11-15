@@ -27,7 +27,11 @@ Không dùng framework: toàn bộ tầng điều khiển, truy cập dữ liệ
 # 1. Dựng cơ sở dữ liệu (tạo bảng + dữ liệu mẫu, chạy lại được nhiều lần)
 sqlcmd -S localhost -U sa -P '<mật khẩu>' -C -i database/FastFoodPreorder.sql
 
-# 2. Sửa src/main/resources/db.properties cho khớp máy chủ SQL Server của bạn
+# 2. Khai báo tài khoản SQL Server (không commit mật khẩu):
+export DB_USERNAME=sa
+export DB_PASSWORD='<mật khẩu>'
+#    hoặc tạo src/main/resources/db.local.properties chứa db.username / db.password
+#    (file này đã nằm trong .gitignore). Đổi địa chỉ máy chủ thì sửa db.url trong db.properties.
 
 # 3. Đóng gói và triển khai
 mvn clean package
